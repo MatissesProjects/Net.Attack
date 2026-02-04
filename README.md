@@ -1,51 +1,27 @@
-# Singularity Vortex Mod for Net.Attack()
+# Set of Mod for Net.Attack()
 
-A BepInEx mod for **Net.Attack()** that adds a powerful, risk-reward "Singularity" ability to the player's arsenal.
+BepInEx mods for **Net.Attack()** that adds some interesting different possibilities in the game.
 
 ## Overview
 
-The **Singularity Vortex** allows you to manipulate the battlefield by generating a gravitational field that pulls enemies towards you. It effectively groups enemies for AOE attacks but requires careful energy management to avoid a catastrophic meltdown.
+These are just a few of the mods we have created so far for this game so we can keep track of what is possible from our side.
 
-### Key Features
+## Goal 
 
-*   **Gravitational Pull:** Hold the activation key to pull nearby enemies into orbit around you.
-*   **Energy System:** The ability drains energy over time. The more enemies you trap, the faster it drains.
-*   **Vampiric Healing:** Killing enemies while the vortex is active consumes a small amount of energy to heal you.
-*   **Discharge Blast:** Releasing the ability releases a shockwave, pushing enemies back and dealing damage.
-*   **Meltdown Mechanic:** If energy hits 0%, the core destabilizes, dealing damage to you and entering an "Overheated" state where it cannot be used until fully recharged.
-*   **Level Scaling:** The radius, pull force, and blast damage scale with your player level. -- Currently doesnt work, but will be added in once we can get this mechanic going
+I want to learn how to mod, and where the limit is of me being able to use BepInEx vs needing to modify the actual dll.
 
-## Controls
-
-*   **Hold `G`**: Activate Singularity Vortex (Pull enemies).
-*   **Release `G`**: Deactivate and trigger Discharge Blast (Push/Damage enemies).
-
-## HUD
-
-A custom energy bar is displayed on the screen:
-*   **Cyan:** Normal operation.
-*   **Yellow:** Low energy.
-*   **Red:** Overheated (recharging).
-
-## Mechanics in Detail
-
-| Mechanic | Description |
-| :--- | :--- |
-| **Drain** | Base drain + extra drain per enemy caught in the field. |
-| **Recharge** | Energy recharges automatically when inactive. Recharge rate increases with player level. |
-| **Safe Radius** | The vortex radius expands as you have more energy and contracts as you run low. |
-| **Overheat** | If you hit 0% energy, you take self-damage and cannot use the ability until it reaches 100% again. |
+Very interested in seeing what we can do and what we can hook into. If you want to help please feel free to suggest anything.
 
 ## Installation
 
-1.  Ensure you have **BepInEx** installed for Net.Attack().
-2.  Download the latest release of this mod.
-3.  Place the `MyNetAttackMod.dll` file into your `BepInEx/plugins` folder.
+1.  In the zip there will be all the needed files for **BepInEx**.
+2.  Place the `MyNetAttackMod.dll` file into your `BepInEx/plugins` folder.
+3.  If you dont have one copy the one from the zip
 4.  Launch the game.
 
 ## Building from Source
 
-To build this project, you need the game DLLs referenced in the `.csproj` file.
+To build these projects, you need the game DLLs referenced in the `.csproj` file.
 
 1.  Clone this repository.
 2.  Update the `<HintPath>` in `TestLibrary.csproj` to point to your local Net.Attack() game folder.
