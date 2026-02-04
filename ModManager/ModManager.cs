@@ -10,14 +10,13 @@ using System.Reflection;
 
 namespace NetAttackModLoader
 {
-    [BepInPlugin("com.matissetec.modloader", "NetAttack Mod Loader", "3.1.0")]
+    [BepInPlugin("com.matissetec.modloader", "NetAttack Mod Loader", "3.3.1")]
     public class NetAttackModLoader : BaseUnityPlugin
     {
         public static NetAttackModLoader Instance;
         public string PluginsPath;
         public string DisabledPath;
 
-        // PERFORMANCE FIX: Cache the lists so we don't read files during menu transitions
         public List<string> CachedActive = new List<string>();
         public List<string> CachedDisabled = new List<string>();
 
@@ -28,11 +27,9 @@ namespace NetAttackModLoader
             DisabledPath = Path.Combine(Paths.BepInExRootPath, "plugins_disabled");
             if (!Directory.Exists(DisabledPath)) Directory.CreateDirectory(DisabledPath);
 
-            // Load files ONCE at startup (prevents lag later)
             RefreshCache();
-
             Harmony.CreateAndPatchAll(typeof(DesktopNativePatch));
-            Logger.LogInfo("Mod Loader Ready (Performance Mode).");
+            Logger.LogInfo("Mod Loader Ready (Icon Alignment Fix).");
         }
 
         public void RefreshCache()
@@ -54,7 +51,6 @@ namespace NetAttackModLoader
                 if (File.Exists(activePath))
                 {
                     File.Move(activePath, disabledPath);
-                    // Update cache manually so we don't need to re-scan
                     CachedActive.RemoveAll(x => Path.GetFileName(x) == fileName);
                     CachedDisabled.Add(disabledPath);
                     return false; 
@@ -72,7 +68,8 @@ namespace NetAttackModLoader
         }
     }
 
-    // --- TEXT ENFORCER (Prevents "Tutorial" overwrite) ---
+    // --- HELPERS ---
+    
     public class TextEnforcer : MonoBehaviour
     {
         public string TargetText;
@@ -100,9 +97,27 @@ namespace NetAttackModLoader
         }
     }
 
+    // NEW: Remembers the original position so we don't lose it when moving icons
+    public class IconOriginalPos : MonoBehaviour 
+    {
+        public Vector2 OriginalAnchoredPosition;
+        public bool Captured = false;
+
+        public void CaptureIfNeeded(RectTransform rt)
+        {
+            if (!Captured)
+            {
+                OriginalAnchoredPosition = rt.anchoredPosition;
+                Captured = true;
+            }
+        }
+    }
+
     [HarmonyPatch(typeof(BRG.UI.Desktop), "Initialize")] 
     public static class DesktopNativePatch
     {
+        enum IconMode { Normal, Flipped, Hidden, Rotated90CCW }
+
         static GameObject _mainMenuContainer;
         static GameObject _modsMenuContainer;
         static MonoBehaviour _buttonTemplate; 
@@ -112,9 +127,6 @@ namespace NetAttackModLoader
         {
             var tutorialBtn = AccessTools.Field(typeof(BRG.UI.Desktop), "_tutorialButton").GetValue(__instance) as MonoBehaviour;
             if (tutorialBtn == null) return;
-
-            // LAG GUARD: Check if we already injected in this scene to prevent double-work
-            // We search the container for our specific button name
             if (tutorialBtn.transform.parent.Find("Btn_OpenMods") != null) return;
 
             _buttonTemplate = tutorialBtn;
@@ -128,11 +140,11 @@ namespace NetAttackModLoader
         {
             GameObject btn = UnityEngine.Object.Instantiate(template.gameObject, _mainMenuContainer.transform);
             btn.name = "Btn_OpenMods";
-            
-            // STYLE FIX: Move to Bottom
             btn.transform.SetAsLastSibling(); 
 
             SetButtonText(btn, "MODS");
+            SetButtonIcon(btn, IconMode.Normal); // Normal Thumbs Up
+
             SetButtonAction(btn, () => {
                 _mainMenuContainer.SetActive(false);
                 _modsMenuContainer.SetActive(true);
@@ -154,31 +166,35 @@ namespace NetAttackModLoader
 
         static void PopulateModList()
         {
-            // HEADER
+            // 1. TOP MARGIN (Spacer)
+            CreateSpacer(30);
+
+            // 2. HEADER
             var header = CloneButton("Header", "--- MOD MANAGER ---");
             SetButtonColor(header.gameObject, Color.yellow);
             RemoveClick(header.gameObject);
-
-            // PERFORMANCE FIX: Use Cached Lists (RAM) instead of Directory.GetFiles (Disk)
+            SetButtonIcon(header.gameObject, IconMode.Hidden); // Hide Icon
             
-            // 1. ACTIVE
+            // 3. HEADER GAP (Spacer)
+            CreateSpacer(20);
+
+            // 4. MOD LIST
             foreach (var file in NetAttackModLoader.Instance.CachedActive)
             {
                 CreateModToggle(Path.GetFileName(file), true);
             }
-
-            // 2. DISABLED
             foreach (var file in NetAttackModLoader.Instance.CachedDisabled)
             {
                 CreateModToggle(Path.GetFileName(file), false);
             }
 
-            // BACK BUTTON
+            // 5. BOTTOM MARGIN (Spacer)
+            CreateSpacer(40);
+
+            // 6. BACK BUTTON
             var backBtn = CloneButton("Back", "<< BACK");
             SetButtonColor(backBtn.gameObject, Color.white);
-            
-            // Ensure Back button is always at the bottom too
-            backBtn.transform.SetAsLastSibling();
+            SetButtonIcon(backBtn.gameObject, IconMode.Rotated90CCW); // Back Arrow (Rotated)
             
             SetButtonAction(backBtn.gameObject, () => {
                 _modsMenuContainer.SetActive(false);
@@ -192,23 +208,99 @@ namespace NetAttackModLoader
             var btnComp = CloneButton(fileName, $"{statusText} {fileName}");
             GameObject btnObj = btnComp.gameObject;
 
-            SetButtonColor(btnObj, startEnabled ? Color.cyan : new Color(1f, 0.4f, 0.4f));
+            UpdateToggleVisuals(btnObj, startEnabled);
 
             SetButtonAction(btnObj, () => {
                 bool isNowEnabled = NetAttackModLoader.Instance.ToggleModFile(fileName);
-                
-                // Visual Update Only (No List Rebuild)
-                string newStatus = isNowEnabled ? "[ON]" : "[OFF]";
-                Color newColor = isNowEnabled ? Color.cyan : new Color(1f, 0.4f, 0.4f);
-                
-                SetButtonColor(btnObj, newColor);
+                UpdateToggleVisuals(btnObj, isNowEnabled);
                 
                 var enforcer = btnObj.GetComponent<TextEnforcer>();
+                string newStatus = isNowEnabled ? "[ON]" : "[OFF]";
                 if (enforcer != null) enforcer.UpdateNow($"{newStatus} {fileName} (RESTART)");
             });
         }
 
-        // --- HELPERS ---
+        static void UpdateToggleVisuals(GameObject btn, bool enabled)
+        {
+            SetButtonColor(btn, enabled ? Color.cyan : new Color(1f, 0.4f, 0.4f));
+            SetButtonIcon(btn, enabled ? IconMode.Normal : IconMode.Flipped); // If NOT enabled, flip upside down
+        }
+
+        // --- IMPROVED ICON LOGIC ---
+        static void SetButtonIcon(GameObject btn, IconMode mode)
+        {
+            var images = btn.GetComponentsInChildren<Image>(true);
+            
+            foreach (var img in images)
+            {
+                if (img.gameObject == btn) continue; 
+                
+                // IGNORE HIGHLIGHTS / DECORATIONS / BACKGROUNDS
+                string name = img.name.ToLower();
+                if (name.Contains("highlight") || name.Contains("glow") || name.Contains("hover") || name.Contains("bg") || name.Contains("background")) continue;
+
+                RectTransform rt = img.rectTransform;
+
+                // HEURISTIC 1: Ignore Full-Stretch Backgrounds
+                // If it anchors to all corners (0,0 to 1,1), it's likely a background.
+                if (rt.anchorMin == Vector2.zero && rt.anchorMax == Vector2.one) continue;
+
+                // HEURISTIC 2: Ignore Wide Elements (Bars, Underlines)
+                // If it spans more than 80% of the width, it's likely a decoration, not an icon.
+                if ((rt.anchorMax.x - rt.anchorMin.x) > 0.8f) continue;
+
+                if (mode == IconMode.Hidden)
+                {
+                    img.enabled = false;
+                }
+                else
+                {
+                    img.enabled = true;
+
+                    // 1. Capture Original Position (So we don't drift)
+                    var posTracker = img.GetComponent<IconOriginalPos>();
+                    if (posTracker == null) posTracker = img.gameObject.AddComponent<IconOriginalPos>();
+                    posTracker.CaptureIfNeeded(img.rectTransform);
+
+                    // 2. Rotate
+                    float zRot = 0;
+                    if (mode == IconMode.Flipped) zRot = 180;
+                    else if (mode == IconMode.Rotated90CCW) zRot = 90;
+
+                    img.transform.localEulerAngles = new Vector3(0, 0, zRot);
+
+                    // 3. Adjust Position (Move up by height if flipped)
+                    if (mode == IconMode.Flipped)
+                    {
+                        // Shift up by full height to counteract the flip relative to pivot
+                        float height = img.rectTransform.rect.height;
+                        img.rectTransform.anchoredPosition = posTracker.OriginalAnchoredPosition + new Vector2(0, height);
+                    }
+                    else if (mode == IconMode.Rotated90CCW)
+                    {
+                        // Shift right by half height (to center the new width)
+                        // Shift up by half width (to bring bottom to baseline)
+                        float h = img.rectTransform.rect.height;
+                        float w = img.rectTransform.rect.width;
+                        img.rectTransform.anchoredPosition = posTracker.OriginalAnchoredPosition + new Vector2(h * 0.5f, w * 0.5f);
+                    }
+                    else
+                    {
+                        // Restore original
+                        img.rectTransform.anchoredPosition = posTracker.OriginalAnchoredPosition;
+                    }
+                }
+            }
+        }
+
+        static void CreateSpacer(float height)
+        {
+            GameObject spacer = new GameObject("Spacer");
+            spacer.transform.SetParent(_modsMenuContainer.transform, false);
+            var le = spacer.AddComponent<LayoutElement>();
+            le.minHeight = height;
+            le.preferredHeight = height;
+        }
 
         static MonoBehaviour CloneButton(string name, string text)
         {
