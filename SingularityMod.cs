@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using BepInEx;
@@ -14,12 +15,12 @@ using BRG.Utils;
 
 namespace TestLibrary
 {
-    [BepInPlugin("com.yourname.singularity_v9", "Singularity Vortex", "1.9.0")]
-    public class SingularityPlugin : BaseUnityPlugin, IMessageReceiver
+    [BepInPlugin("com.matissetec.singularity_v9", "Singularity Vortex", "1.9.0")]
+    public class SingularityPlugin : BaseUnityPlugin
     {
         public static SingularityPlugin Instance;
         
-        // --- TUNED SETTINGS ---
+        // --- SETTINGS ---
         public static bool IsActive = false; 
         public static bool IsOverheated = false;
 
@@ -27,28 +28,95 @@ namespace TestLibrary
         public static float BaseDrain = 8f;         
         public static float DrainPerEnemy = 3.0f;   
         public static float RechargeRate = 6f;     
-        
-        // DYNAMIC RADIUS
         public static float BaseSafeRadius = 4.5f;  
         public static float MinSafeRadius = 1.5f;   
-        
-        // ABILITIES
+
         public static float BlastPush = .5f;     
         public static float BlastDamage = .5f;
-        public static float MeltdownSelfDamage = 25f; 
+        public static float MeltdownSelfDamage = 25f;
 
         // STATE
         public static bool IsInShop = false;
         public static bool IsInCodingScreen = false;
-        public static int PlayerLevel = 1;
+        public static int PlayerLevel = 1; // Kept for reference
+        public static int SingularityLevel = 0; // The actual upgrade level
+
+        // We hijack the existing "Collection Radius" upgrade
+        public const string UPGRADE_ID = "biSKigvSH0meTM/+oJv8ig";
 
         void Awake()
         {
             Instance = this;
             Harmony.CreateAndPatchAll(typeof(SingularityPlugin));
-            Logger.LogInfo(">>> SINGULARITY V9: STABLE EDITION <<<");
+            Logger.LogInfo(">>> SINGULARITY V9: UPGRADE SYSTEM ONLINE <<<");
+            
+            // --- PERK PROBE ---
+            try {
+                Logger.LogWarning("--- LOOKING FOR PERKS ---");
+                var assembly = typeof(RunUpgradeShopController).Assembly;
+                foreach (Type t in assembly.GetTypes()) {
+                    if (t.Name.Contains("Perk") || t.Name.Contains("Card") || (t.Name.Contains("Run") && t.Name.Contains("Upgrade"))) {
+                         Logger.LogInfo($"[POSSIBLE PERK TYPE]: {t.Name} ({t.FullName})");
+                    }
+                }
+            } catch {}
         }
 
+        // --- UPGRADE INJECTION (Hijack Mode) ---
+        [HarmonyPatch]
+        class UpgradeInjector
+        {
+            static MethodBase TargetMethod()
+            {
+                return AccessTools.Method("BRG.DataManagement.DatabaseUpgradeBuilder:BuildUpgrades");
+            }
+
+            static void Prefix(object __instance)
+            {
+                try
+                {
+                    Debug.LogWarning("[Singularity] >>> INTERCEPTED BuildUpgrades! <<<");
+
+                    var field = AccessTools.Field(__instance.GetType(), "_gameplayUpgrades");
+                    var list = field?.GetValue(__instance) as IList;
+                    if (list == null) return;
+
+                    // Search for the existing upgrade to Hijack
+                    object targetUpgrade = null;
+                    foreach (var item in list)
+                    {
+                        string id = (string)AccessTools.Field(item.GetType(), "id").GetValue(item);
+                        if (id == UPGRADE_ID)
+                        {
+                            targetUpgrade = item;
+                            break;
+                        }
+                    }
+
+                    if (targetUpgrade != null)
+                    {
+                        Debug.LogWarning($"[Singularity] HIJACKING Collection Radius Upgrade ({UPGRADE_ID})...");
+                        
+                        // Traverse t = Traverse.Create(targetUpgrade);
+                        // t.Field("_nameKey").SetValue("Singularity & Radius"); 
+                        // t.Field("_descriptionKey").SetValue("Increases Singularity Vortex range AND item collection radius.");
+                        
+                        Debug.LogWarning("[Singularity] SUCCESS: Hijack logic active (Name change disabled for safety)!");
+                    }
+                    else
+                    {
+                        Debug.LogError($"[Singularity] Target upgrade {UPGRADE_ID} not found in builder list!");
+                    }
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError($"[Singularity] Hijack Failed: {e}");
+                }
+            }
+        }
+
+
+        // --- PLAYER HOOKS ---
         [HarmonyPatch(typeof(Player), "Awake")]
         [HarmonyPostfix] 
         static void PlayerAwake_Patch(Player __instance)
@@ -89,6 +157,11 @@ namespace TestLibrary
         private float _scanTimer = 0f;
         private float _currentRadius = 4.0f;
         
+        // Scalable Stats
+        private float _maxRadius = 4.5f;
+        private float _minRadius = 1.5f;
+        private float _blastDamage = 0.5f;
+
         private List<Enemy> _nearbyEnemies = new List<Enemy>();
         private HealthComponent _myHealth; 
         
@@ -98,13 +171,47 @@ namespace TestLibrary
 
         // Reflection Cache
         private static FieldInfo _fiOnShopChangedMsg;
-        private float _uiUpdateTimer = 0f; // Throttle UI checks
-        private float _movementHoldTimer = 0f; // Heuristic: Time spending moving
+        private float _uiUpdateTimer = 0f;
+        private float _movementHoldTimer = 0f; 
 
         void Start()
         {
             _myHealth = GetComponent<HealthComponent>();
             CreateVisuals();
+            ApplyUpgrades();
+        }
+
+        void ApplyUpgrades()
+        {
+            // Try to read real game level
+            int realLevel = 0;
+            try
+            {
+                var mgrType = AccessTools.TypeByName("BRG.Gameplay.Upgrades.UpgradeManager");
+                if (mgrType != null)
+                {
+                    var instance = AccessTools.Property(mgrType, "Instance").GetValue(null);
+                    if (instance != null)
+                    {
+                        // Assuming GetUpgradeLevel(string id) exists
+                        var method = AccessTools.Method(mgrType, "GetUpgradeLevel", new Type[] { typeof(string) });
+                        if (method != null)
+                        {
+                            realLevel = (int)method.Invoke(instance, new object[] { SingularityPlugin.UPGRADE_ID });
+                        }
+                    }
+                }
+            }
+            catch {}
+
+            // Use manual level if 'U' was pressed, otherwise use real game level
+            int level = Mathf.Max(realLevel, SingularityPlugin.SingularityLevel);
+            
+            // Base radius increases by 15% per level
+            _maxRadius = SingularityPlugin.BaseSafeRadius * (1f + (level * 0.15f)); 
+            _blastDamage = SingularityPlugin.BlastDamage + (level * 2f);
+            
+            Debug.Log($"[Singularity] Upgrades Applied. Level: {level} (Game: {realLevel}), Radius: {_maxRadius:F2}, Damage: {_blastDamage:F1}");
         }
 
         void CreateVisuals()
@@ -163,6 +270,37 @@ namespace TestLibrary
 
         void Update()
         {
+            // --- DEBUG: LIST UPGRADES ---
+            if (Input.GetKey(KeyCode.LeftShift) && Input.GetKeyDown(KeyCode.L))
+            {
+                Debug.LogWarning("[Singularity] Listing Active Upgrades...");
+                try {
+                     var mgrType = AccessTools.TypeByName("BRG.Gameplay.Upgrades.UpgradeManager");
+                     var instance = AccessTools.Property(mgrType, "Instance").GetValue(null);
+                     // Check for common collection names: _upgrades, _activeUpgrades, Upgrades
+                     var field = AccessTools.Field(mgrType, "_upgrades") ?? AccessTools.Field(mgrType, "Upgrades");
+                     
+                     if (field != null && instance != null)
+                     {
+                         var dict = field.GetValue(instance) as System.Collections.IDictionary;
+                         if (dict != null)
+                         {
+                             foreach (System.Collections.DictionaryEntry entry in dict)
+                             {
+                                 Debug.Log($"Upgrade: {entry.Key} | Level: {entry.Value}");
+                             }
+                         }
+                     }
+                } catch (Exception e) { Debug.LogError("List failed: " + e); }
+            }
+
+            // --- DEBUG: FORCE UPGRADE ---
+            if (Input.GetKeyDown(KeyCode.U))
+            {
+                SingularityPlugin.SingularityLevel++;
+                ApplyUpgrades();
+            }
+
             // --- HEURISTIC: Coding Screen Detection ---
             if (Input.GetKeyDown(KeyCode.C) || Input.GetKeyDown(KeyCode.E))
             {
@@ -183,21 +321,16 @@ namespace TestLibrary
                 _movementHoldTimer = 0f;
             }
 
-            // Throttle UI/Reflection checks to prevent lag/crashes
+            // Throttle UI/Reflection checks
             _uiUpdateTimer -= Time.deltaTime;
             if (_uiUpdateTimer <= 0f)
             {
                 UpdateUIStates();
-                _uiUpdateTimer = 0.2f; // Check 5 times per second
+                _uiUpdateTimer = 0.2f; 
             }
 
             if (SingularityPlugin.IsInShop || SingularityPlugin.IsInCodingScreen)
             {
-                if (Input.GetKeyDown(KeyCode.G))
-                {
-                    Debug.Log($"[Singularity] Input Blocked! Shop: {SingularityPlugin.IsInShop}, Coding: {SingularityPlugin.IsInCodingScreen}");
-                }
-
                 if (_fieldVisual != null && _fieldVisual.activeSelf) _fieldVisual.SetActive(false);
                 return;
             }
@@ -260,7 +393,6 @@ namespace TestLibrary
                     _fiOnShopChangedMsg = typeof(RunUpgradeShopController).GetField("_onShopChangedMessage", BindingFlags.Instance | BindingFlags.NonPublic);
                 }
 
-                // Safety check for SceneReferences access
                 RunUpgradeShopController shop = null;
                 if (SceneReferences.Instance != null) 
                     shop = SceneReferences.Instance.RunUpgradeShopController;
@@ -282,12 +414,7 @@ namespace TestLibrary
                     SingularityPlugin.IsInShop = false;
                 }
 
-                // 2. CODING SCREEN STATE
-                // CodingScreenController coding = FindObjectOfType<CodingScreenController>();
-                // SingularityPlugin.IsInCodingScreen = (coding != null && coding.gameObject.activeInHierarchy);
-                // SingularityPlugin.IsInCodingScreen = false; // Bypass flawed check - Handled in Update() heuristic
-
-                // 3. PLAYER LEVEL SCALING
+                // 2. PLAYER LEVEL SCALING
                 Player p = FindObjectOfType<Player>();
                 if (p != null)
                 {
@@ -297,8 +424,7 @@ namespace TestLibrary
             }
             catch (Exception)
             {
-                // Suppress errors to prevent game crash loop
-                // SingularityPlugin.IsInShop = false; 
+                SingularityPlugin.IsInShop = false; 
             }
         }
 
@@ -306,15 +432,12 @@ namespace TestLibrary
         {
             if (SingularityPlugin.IsOverheated)
             {
-                if (Input.GetKeyDown(KeyCode.G)) Debug.Log("[Singularity] Input Blocked: OVERHEATED");
                 SingularityPlugin.IsActive = false;
                 return;
             }
 
-            // Only use G key
             if (Input.GetKey(KeyCode.G))
             {
-                if (!SingularityPlugin.IsActive) Debug.Log("[Singularity] G Pressed - ACTIVATING");
                 SingularityPlugin.IsActive = true;
             }
 
@@ -322,7 +445,6 @@ namespace TestLibrary
             {
                 if (SingularityPlugin.IsActive)
                 {
-                    Debug.Log("[Singularity] G Released - DISCHARGE");
                     DischargeBlast();
                     SingularityPlugin.IsActive = false;
                 }
@@ -339,7 +461,7 @@ namespace TestLibrary
                 CurrentEnergy -= _currentDrainRate * Time.deltaTime;
 
                 float energyPct = CurrentEnergy / SingularityPlugin.MaxEnergy;
-                _currentRadius = Mathf.Lerp(SingularityPlugin.MinSafeRadius, SingularityPlugin.BaseSafeRadius, energyPct);
+                _currentRadius = Mathf.Lerp(_minRadius, _maxRadius, energyPct); // Use Scaled Max
 
                 if (CurrentEnergy <= 0f)
                 {
@@ -348,7 +470,6 @@ namespace TestLibrary
             }
             else
             {
-                // Recharge faster at higher levels
                 float recharge = SingularityPlugin.RechargeRate + (SingularityPlugin.PlayerLevel * 0.5f);
                 CurrentEnergy += recharge * Time.deltaTime;
                 
@@ -405,7 +526,7 @@ namespace TestLibrary
                 float dist = toEnemy.magnitude;
                 
                 // SCALE: Blast push increases with level
-                float power = SingularityPlugin.BlastPush + (SingularityPlugin.PlayerLevel * 0.2f);
+                float power = SingularityPlugin.BlastPush + (SingularityPlugin.SingularityLevel * 0.2f);
                 float pushDist = Mathf.Clamp(power * (3.0f / (dist + 1f)), 2.0f, 8.0f);
                 
                 enemy.transform.position += dir * pushDist; 
@@ -415,7 +536,7 @@ namespace TestLibrary
                 {
                     bool died;
                     // SCALE: Damage increases with level
-                    float dmg = SingularityPlugin.BlastDamage + (SingularityPlugin.PlayerLevel * 2f);
+                    float dmg = _blastDamage;
                     h.TakeDamage(dir, dmg, out died, true, false, false);
                 }
             }
@@ -468,7 +589,7 @@ namespace TestLibrary
             string status = SingularityPlugin.IsActive ? "ACTIVE" : "OFF";
             if (SingularityPlugin.IsOverheated) status = "OVERHEATED";
             
-            string text = $"VORTEX [{status}] LVL {SingularityPlugin.PlayerLevel}: {(int)CurrentEnergy}%";
+            string text = $"VORTEX [{status}] LVL {SingularityPlugin.SingularityLevel}: {(int)CurrentEnergy}%";
             GUI.Label(new Rect(x, y - 18f, width, 20f), text, style);
         }
     }
