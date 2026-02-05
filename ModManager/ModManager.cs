@@ -121,6 +121,16 @@ namespace NetAttackModLoader
         static GameObject _mainMenuContainer;
         static GameObject _modsMenuContainer;
         static MonoBehaviour _buttonTemplate; 
+        static Type _cachedBtnType;
+
+        static Type GetButtonType()
+        {
+            if (_cachedBtnType != null) return _cachedBtnType;
+            _cachedBtnType = AccessTools.TypeByName("BRG.UI.Primitives.BRG_Button") ?? 
+                             AccessTools.TypeByName("BRG.UI.BRG_Button") ?? 
+                             AccessTools.TypeByName("BRG_Button");
+            return _cachedBtnType;
+        }
 
         [HarmonyPostfix]
         static void Postfix(BRG.UI.Desktop __instance)
@@ -307,7 +317,7 @@ namespace NetAttackModLoader
             GameObject newObj = UnityEngine.Object.Instantiate(_buttonTemplate.gameObject, _modsMenuContainer.transform);
             newObj.name = "Btn_" + name;
             SetButtonText(newObj, text);
-            Type btnType = AccessTools.TypeByName("BRG.UI.BRG_Button") ?? AccessTools.TypeByName("BRG_Button");
+            Type btnType = GetButtonType();
             return newObj.GetComponent(btnType) as MonoBehaviour;
         }
 
@@ -320,7 +330,9 @@ namespace NetAttackModLoader
 
         static void RemoveClick(GameObject btnObj)
         {
-            var btnComp = btnObj.GetComponent("BRG_Button") as MonoBehaviour;
+            Type btnType = GetButtonType();
+            if (btnType == null) return;
+            var btnComp = btnObj.GetComponent(btnType) as MonoBehaviour;
             if (btnComp) UnityEngine.Object.Destroy(btnComp);
         }
 
@@ -334,7 +346,7 @@ namespace NetAttackModLoader
 
         static void SetButtonAction(GameObject btnObj, Action action)
         {
-            Type btnType = AccessTools.TypeByName("BRG.UI.BRG_Button") ?? AccessTools.TypeByName("BRG_Button");
+            Type btnType = GetButtonType();
             if (btnType == null) return;
             var comp = btnObj.GetComponent(btnType);
             if (comp == null) return;
