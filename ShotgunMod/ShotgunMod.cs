@@ -1,9 +1,11 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Reflection;
 using BepInEx;
 using HarmonyLib;
 using UnityEngine;
+using BRG.Gameplay.Units; 
 using Random = UnityEngine.Random;
 
 namespace ShotgunMod
@@ -18,123 +20,144 @@ namespace ShotgunMod
         {
             Instance = this;
             Log = Logger;
-            Harmony.CreateAndPatchAll(typeof(ShotgunPatch));
-            Log.LogInfo("Shotgun Mod Loaded.");
+            
+            try {
+                Harmony harmony = new Harmony("com.matissetec.shotgunmod");
+                harmony.PatchAll(); 
+                Log.LogInfo(">>> SHOTGUN MOD (V7) RECURSIVE ONLINE <<<");
+            } catch (Exception e) {
+                Log.LogError("Shotgun Patching Failed: " + e);
+            }
         }
     }
 
     [HarmonyPatch]
-    public static class ShotgunPatch
+    public static class ShotgunActionPatch
     {
-        // Target: BRG.NodeSystem.Actions.ProjectileAction:Execute
-        // We use string reflection to be safe
-        static MethodBase TargetMethod()
+        private static bool _isInternal = false;
+
+        static IEnumerable<MethodBase> TargetMethods()
         {
-            return AccessTools.Method("BRG.NodeSystem.Actions.ProjectileAction:Execute");
+            string[] actionTypes = {
+                "BRG.NodeSystem.Actions.ProjectileAction",
+                "BRG.NodeSystem.Actions.ShotgunProjectileAction",
+                "BRG.NodeSystem.Actions.LineProjectileAction",
+                "BRG.NodeSystem.Actions.ThrowProjectileAction",
+                "BRG.NodeSystem.Actions.CircleProjectileAction",
+                "BRG.NodeSystem.Actions.BeamAction",
+                "BRG.NodeSystem.Actions.LaserAction"
+            };
+
+            foreach (var typeName in actionTypes)
+            {
+                var method = AccessTools.Method(typeName + ":Execute");
+                if (method != null) yield return method;
+            }
         }
 
         [HarmonyPrefix]
-        static void Prefix(object __instance)
+        static void Prefix(object __instance, object[] __args)
         {
+            if (_isInternal) return;
+
             try 
             {
-                // 1. Identify if this Action belongs to the PLAYER
-                // Actions usually have a 'Unit' or 'Owner' property.
-                // We'll check for the field '_unit' or property 'Unit'.
                 var type = __instance.GetType();
-                FieldInfo unitField = AccessTools.Field(type, "_unit") ?? AccessTools.Field(type, "unit");
+
+                // 1. IDENTIFY PLAYER
+                var acField = AccessTools.Field(type, "_actionController");
+                if (acField == null) return;
                 
-                object unitObj = null;
-                if (unitField != null) unitObj = unitField.GetValue(__instance);
+                var ac = acField.GetValue(__instance) as MonoBehaviour;
+                if (ac == null) return;
+                
+                bool isPlayer = ac.name.Contains("Player") || ac.GetComponentInParent<Player>() != null;
+                if (!isPlayer) return;
 
-                // If we found a unit, check if it's the Player
-                if (unitObj != null && unitObj.GetType().Name.Contains("Player"))
-                {
-                    // 2. APPLY COST (Self Damage)
-                    // We'll use reflection to find HealthComponent and TakeDamage
-                    var healthComp = AccessTools.Property(unitObj.GetType(), "Health")?.GetValue(unitObj) 
-                                     ?? AccessTools.Field(unitObj.GetType(), "_health")?.GetValue(unitObj);
+                // 2. FIRST START CHECK (Prevent suicide on continuous actions)
+                var fsField = AccessTools.Field(type, "_firstStart");
+                if (fsField != null && !(bool)fsField.GetValue(__instance)) return;
+
+                // 3. TRIGGER SHOTGUN BURST (Recursive firing)
+                _isInternal = true;
+                try {
+                    ApplyShotgunCost(ac.gameObject);
                     
-                    if (healthComp == null)
+                    int extraShots = 4;
+                    float spread = 30f;
+                    var executeMethod = AccessTools.Method(type, "Execute");
+
+                    if (executeMethod != null)
                     {
-                        // Try GetComponent if unit is a Component
-                        if (unitObj is Component c)
+                        ShotgunPlugin.Log.LogInfo($"Shotgun: Bursting {type.Name}");
+                        
+                        Quaternion originalRot = ac.transform.rotation;
+
+                        for (int i = 0; i < extraShots; i++)
                         {
-                            // We assume the type name is "HealthComponent" based on AllClasses.txt
-                            var hcType = AccessTools.TypeByName("BRG.Gameplay.Units.HealthComponent");
-                            if (hcType != null)
-                                healthComp = c.GetComponent(hcType);
-                        }
-                    }
-
-                    if (healthComp != null)
-                    {
-                        // Deduct 2 HP per shot
-                        // Method: TakeDamage(Vector2 dir, float amount, out bool died, bool ignoreInvincibility, bool ignoreShield, bool ignoreBlock)
-                        // Signature might vary, let's look for one that takes float
-                        var takeDmg = AccessTools.Method(healthComp.GetType(), "TakeDamage", 
-                            new Type[] { typeof(Vector2), typeof(float), typeof(bool).MakeByRefType(), typeof(bool), typeof(bool), typeof(bool) });
-
-                        if (takeDmg != null)
-                        {
-                            object[] args = new object[] { Vector2.zero, 2.0f, false, true, false, false };
-                            takeDmg.Invoke(healthComp, args);
-                           // ShotgunPlugin.Log.LogInfo("Shotgun Cost Applied: 2 HP");
-                        }
-                    }
-
-                    // 3. SPAWN EXTRA PROJECTILES (The Shotgun Effect)
-                    // We need the Projectile Prefab.
-                    // Access field '_projectilePrefab' or similar.
-                    var prefabField = AccessTools.Field(type, "_projectilePrefab") ?? AccessTools.Field(type, "projectilePrefab");
-                    var prefab = prefabField?.GetValue(__instance) as GameObject;
-
-                    if (prefab != null && unitObj is MonoBehaviour mb)
-                    {
-                        // Spawn 4 extra bullets
-                        int pellets = 4;
-                        float spreadAngle = 30f; // Total spread degrees
-
-                        Vector3 spawnPos = mb.transform.position;
-                        Quaternion baseRot = mb.transform.rotation;
-
-                        // Identify the firing point/direction if possible.
-                        // Often actions use the unit's forward or mouse position.
-                        // We'll assume the Unit's rotation is the aim direction for now.
-
-                        for (int i = 0; i < pellets; i++)
-                        {
-                            // Calculate spread
-                            float angle = Mathf.Lerp(-spreadAngle / 2, spreadAngle / 2, (float)i / (pellets - 1));
-                            
-                            // Add some randomness
+                            float angle = Mathf.Lerp(-spread/2, spread/2, (float)i / (extraShots-1));
                             angle += Random.Range(-5f, 5f);
 
-                            Quaternion rot = baseRot * Quaternion.Euler(0, 0, angle);
+                            // TEMPORARILY ROTATE THE FIRING UNIT
+                            ac.transform.rotation = originalRot * Quaternion.Euler(0, 0, angle);
 
-                            // Instantiate
-                            var extraProj = UnityEngine.Object.Instantiate(prefab, spawnPos, rot);
+                            // CALL THE ORIGINAL EXECUTE LOGIC
+                            // This ensures the game handles speed, damage, and visuals correctly.
+                            var result = executeMethod.Invoke(__instance, __args);
                             
-                            // We need to initialize the projectile.
-                            // Usually there is a "Setup" or "Initialize" method.
-                            // Or just activating it might be enough if it has Start() logic.
-                            
-                            // Check for "ProjectileMovement" component
-                            // var pm = extraProj.GetComponent("ProjectileMovement");
-                            // If it needs setup (damage, owner), we might be missing it here.
-                            // But usually prefabs have default values.
-                            
-                            // Safety: Destroy after 5 seconds to prevent leaks if logic fails
-                            UnityEngine.Object.Destroy(extraProj, 5.0f);
+                            // If it's a coroutine (standard for actions), start it
+                            if (result is IEnumerator coroutine)
+                            {
+                                ac.StartCoroutine(coroutine);
+                            }
                         }
+
+                        // RESTORE ROTATION
+                        ac.transform.rotation = originalRot;
                     }
+                } finally {
+                    _isInternal = false;
                 }
             }
             catch (Exception e)
             {
-                // Suppress errors to avoid console spam during gameplay
-                 ShotgunPlugin.Log.LogError("Shotgun Error: " + e.Message);
+                ShotgunPlugin.Log.LogError("Shotgun V7 Error: " + e.Message);
+                _isInternal = false;
             }
+        }
+
+        static void ApplyShotgunCost(GameObject playerGO)
+        {
+            try {
+                var hc = playerGO.GetComponentInChildren<HealthComponent>() ?? playerGO.GetComponentInParent<HealthComponent>();
+                if (hc != null)
+                {
+                    // Find TakeDamage with any vector/float signature
+                    var methods = hc.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
+                    MethodInfo target = null;
+                    foreach (var m in methods) {
+                        if (m.Name == "TakeDamage") {
+                            var p = m.GetParameters();
+                            if (p.Length >= 2 && p[1].ParameterType == typeof(float)) {
+                                target = m;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (target != null) {
+                        var pCount = target.GetParameters().Length;
+                        object[] args = new object[pCount];
+                        args[0] = Vector3.zero;
+                        args[1] = 2.0f; // Cost
+                        if (pCount > 2) args[2] = false; // died ref
+                        for (int i=3; i<pCount; i++) args[i] = true; // ignores
+                        target.Invoke(hc, args);
+                    } else {
+                        playerGO.SendMessage("Heal", -2.0f, SendMessageOptions.DontRequireReceiver);
+                    }
+                }
+            } catch {}
         }
     }
 }
