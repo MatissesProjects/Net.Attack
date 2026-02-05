@@ -36,25 +36,6 @@ namespace ShotgunMod
     {
         private static bool _isInternal = false;
 
-        static IEnumerable<MethodBase> TargetMethods()
-        {
-            string[] actionTypes = {
-                "BRG.NodeSystem.Actions.ProjectileAction",
-                "BRG.NodeSystem.Actions.ShotgunProjectileAction",
-                "BRG.NodeSystem.Actions.LineProjectileAction",
-                "BRG.NodeSystem.Actions.ThrowProjectileAction",
-                "BRG.NodeSystem.Actions.CircleProjectileAction",
-                "BRG.NodeSystem.Actions.BeamAction",
-                "BRG.NodeSystem.Actions.LaserAction"
-            };
-
-            foreach (var typeName in actionTypes)
-            {
-                var method = AccessTools.Method(typeName + ":Execute");
-                if (method != null) yield return method;
-            }
-        }
-
         [HarmonyPrefix]
         static void Prefix(object __instance, object[] __args)
         {
@@ -89,7 +70,7 @@ namespace ShotgunMod
 
                     if (executeMethod != null)
                     {
-                        ShotgunPlugin.Log.LogInfo($"Shotgun: Bursting {type.Name}");
+                        // ShotgunPlugin.Log.LogInfo($"Shotgun: Bursting {type.Name}");
                         
                         Quaternion originalRot = ac.transform.rotation;
 
