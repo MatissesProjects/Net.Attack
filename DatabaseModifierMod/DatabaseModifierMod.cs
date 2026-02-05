@@ -20,11 +20,15 @@ namespace DatabaseModifierMod
         
         // Master template to ensure consistency
         public static ScriptableObject MasterTemplate;
+        
+        // Global Counter for reliability
+        public static int StackCount = 0;
 
         void Awake()
         {
             Instance = this;
             Log = Logger;
+            StackCount = 0; // Reset on load
             
             try {
                 Harmony harmony = new Harmony("com.matissetec.databasemodifier");
@@ -78,7 +82,7 @@ namespace DatabaseModifierMod
         {
             if (string.IsNullOrEmpty(Term)) return true;
             if (Term == "HYPER_SPEED_KEY") { __result = "HYPER SPEED V3"; return false; }
-            if (Term == "HYPER_SPEED_DESC") { __result = "Gives +100% Movement Speed per stack."; return false; }
+            if (Term == "HYPER_SPEED_DESC") { __result = "Gives +1000% Movement Speed and Grows Player."; return false; }
             return true;
         }
     }
@@ -197,7 +201,10 @@ namespace DatabaseModifierMod
                 
                 if (selectedIndex == 0 || (upgradeFi != null && upgradeFi.GetValue(message) == DatabaseModifierPlugin.MasterTemplate)) {
                     if (upgradeFi != null) upgradeFi.SetValue(message, DatabaseModifierPlugin.MasterTemplate);
-                    DatabaseModifierPlugin.Log.LogWarning("[Selection] Forced Hijack in Message.");
+                    
+                    // INCREMENT GLOBAL COUNTER
+                    DatabaseModifierPlugin.StackCount++;
+                    DatabaseModifierPlugin.Log.LogWarning($"[Selection] HYPER SPEED SELECTED! Total Stacks: {DatabaseModifierPlugin.StackCount}");
                 }
             } catch (Exception e) {
                 DatabaseModifierPlugin.Log.LogError($"[Selection] JIT Failed: {e.Message}");
@@ -218,80 +225,82 @@ namespace DatabaseModifierMod
 
     public class CustomUpgradeBehavior : MonoBehaviour
     {
-        private float _lastSpeedBoost = -1f;
+        private float _lastStackCount = -1f;
         private MonoBehaviour _movementComponent;
-        private float _checkTimer = 0f;
+        private SpriteRenderer _spriteRenderer;
+        
         private float _originalSpeed = -1f;
+        private Vector3 _originalScale = Vector3.one;
+        private bool _statsCaptured = false;
 
         void Start()
         {
             foreach(var mb in GetComponents<MonoBehaviour>()) {
                 if (mb.GetType().Name == "PlayerMovement") { _movementComponent = mb; break; }
             }
+            _spriteRenderer = GetComponent<SpriteRenderer>();
+            _originalScale = transform.localScale;
         }
 
         void Update()
         {
-            _checkTimer -= Time.deltaTime;
-            if (_checkTimer <= 0f) { _checkTimer = 0.5f; UpdateSpeedBoost(); }
-        }
+            if (!_statsCaptured || _originalSpeed <= 0) {
+                CaptureOriginalStats();
+            }
 
-        void UpdateSpeedBoost()
-        {
-            int count = 0;
-            HashSet<object> seen = new HashSet<object>();
-            try {
-                var asm = typeof(DatabaseUpgradeBuilder).Assembly;
-                var rdcType = asm.GetType("BRG.DataManagement.RunDataController");
-                var instance = rdcType?.GetProperty("Instance", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
-                
-                if (instance != null) {
-                    var methods = rdcType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                    var getRunMethod = methods.FirstOrDefault(m => m.Name.Contains("GetRunUpgrades"));
-                    count += CountInList(getRunMethod?.Invoke(instance, null) as IList, seen);
-                    
-                    var getNodeMethod = methods.FirstOrDefault(m => m.Name == "GetNodes" || m.Name == "GetAllNodes");
-                    count += CountInList(getNodeMethod?.Invoke(instance, null) as IList, seen);
-                }
-            } catch {}
+            // Use the Global Counter directly
+            int currentStacks = DatabaseModifierPlugin.StackCount;
 
-            // Multiply by 10.0f for "Super Clear" effect
-            float boostValue = count * 10.0f;
-            if (boostValue != _lastSpeedBoost) {
-                ApplySpeedBoost(boostValue);
-                _lastSpeedBoost = boostValue;
+            if (currentStacks != _lastStackCount) {
+                _lastStackCount = currentStacks;
+                DatabaseModifierPlugin.Log.LogWarning($"[CustomBehavior] APPLYING STACKS: {currentStacks}");
+            }
+
+            if (_statsCaptured && currentStacks > 0) {
+                ApplyEffects(currentStacks);
             }
         }
 
-        int CountInList(IList list, HashSet<object> seen)
-        {
-            if (list == null) return 0;
-            int c = 0;
-            foreach (var item in list) {
-                if (item == null || seen.Contains(item)) continue;
-                seen.Add(item);
-                var fields = item.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                var idFi = fields.FirstOrDefault(f => f.Name == "id" || f.Name == "_id");
-                var id = idFi?.GetValue(item) as string;
-                if (id != null && id.Contains(DatabaseModifierPlugin.CUSTOM_ID)) c++;
-            }
-            return c;
-        }
-
-        void ApplySpeedBoost(float boost)
+        void CaptureOriginalStats()
         {
             if (_movementComponent == null) return;
             try {
-                var fields = _movementComponent.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                var type = _movementComponent.GetType();
+                var fields = type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
                 var speedFi = fields.FirstOrDefault(f => f.Name == "_speed" || f.Name == "speed" || f.Name == "_moveSpeed");
                 if (speedFi != null) {
-                    float currentSpeed = (float)speedFi.GetValue(_movementComponent);
-                    if (_originalSpeed < 0) _originalSpeed = currentSpeed;
-                    float newSpeed = _originalSpeed * (1f + boost);
-                    speedFi.SetValue(_movementComponent, newSpeed);
-                    DatabaseModifierPlugin.Log.LogWarning($"[CustomBehavior] SPEED: {newSpeed:F2} (Stacks: {boost/10f}, Boost: {boost*100}%)");
+                    float val = (float)speedFi.GetValue(_movementComponent);
+                    if (val > 0) {
+                        _originalSpeed = val;
+                        _statsCaptured = true;
+                        DatabaseModifierPlugin.Log.LogInfo($"[CustomBehavior] Base Stats Captured. Speed: {_originalSpeed}");
+                    }
                 }
             } catch {}
+        }
+
+        void ApplyEffects(float stacks)
+        {
+            // 1. SPEED (10x per stack)
+            if (_movementComponent != null) {
+                try {
+                    var fields = _movementComponent.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    var speedFi = fields.FirstOrDefault(f => f.Name == "_speed" || f.Name == "speed" || f.Name == "_moveSpeed");
+                    if (speedFi != null) {
+                        float newSpeed = _originalSpeed * (1f + (stacks * 10.0f));
+                        speedFi.SetValue(_movementComponent, newSpeed);
+                    }
+                } catch {}
+            }
+
+            // 2. SCALE (Grow)
+            transform.localScale = _originalScale * (1f + (stacks * 0.5f));
+
+            // 3. COLOR (Flash Magenta)
+            if (_spriteRenderer != null) {
+                float t = Mathf.PingPong(Time.time * 5f, 1f);
+                _spriteRenderer.color = Color.Lerp(Color.white, Color.magenta, t);
+            }
         }
     }
 }
