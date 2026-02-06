@@ -270,6 +270,7 @@ namespace NetAttackModUtils
                 if (method != null) harmony.Patch(method, new HarmonyMethod(AccessTools.Method(typeof(ModUtils), nameof(UpgradeShopPrefix))));
             }
             _upgradeRegistry.Add(new HijackData { GetTemplate = getTemplate, ShouldInject = shouldInject });
+            BepInEx.Logging.Logger.CreateLogSource("ModUtils").LogInfo($"Registered Upgrade Hijack. Total: {_upgradeRegistry.Count}");
         }
 
         private static void UpgradeShopPrefix(object[] __args)
@@ -336,36 +337,88 @@ namespace NetAttackModUtils
                 if (method != null) harmony.Patch(method, new HarmonyMethod(AccessTools.Method(typeof(ModUtils), nameof(NodeShopPrefix))));
             }
             _nodeRegistry.Add(new HijackData { GetTemplate = getTemplate, ShouldInject = shouldInject });
+            BepInEx.Logging.Logger.CreateLogSource("ModUtils").LogInfo($"Registered Node Hijack. Total: {_nodeRegistry.Count}");
         }
 
         private static void NodeShopPrefix(object __instance)
         {
             try {
-                // Log that we are here
                 var log = BepInEx.Logging.Logger.CreateLogSource("ModUtils_Shop");
-                log.LogInfo("NodeShopPrefix triggered!");
+                
+                if (_nodeRegistry.Count == 0) {
+                    log.LogWarning("NodeShopPrefix: Registry is empty!");
+                    return;
+                }
 
                 var flags = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
-                var field = __instance.GetType().GetFields(flags).FirstOrDefault(f => f.FieldType.Name.Contains("List") && f.Name.ToLower().Contains("node"));
-                if (field == null) {
-                    log.LogWarning("Could not find node list field in Shop!");
+                
+                // 1. Get the ShopNodeDataSO sub-object
+                var dataField = __instance.GetType().GetField("_shopNodeDataSO", flags);
+                var dataSO = dataField?.GetValue(__instance);
+                if (dataSO == null) {
+                    log.LogWarning("NodeShopPrefix: _shopNodeDataSO not found on Shop instance.");
                     return;
                 }
 
-                var list = field.GetValue(__instance) as IList;
-                if (list == null) {
-                    log.LogWarning("Node list field is null!");
+                // 2. Find the Deck, Hand, and master nodes array
+                var soType = dataSO.GetType();
+                var deckFi = soType.GetField("_Deck", flags) ?? soType.GetField("_deck", flags);
+                var handFi = soType.GetField("_Hand", flags) ?? soType.GetField("_hand", flags);
+                var masterFi = soType.GetField("_nodes", flags);
+
+                var deck = deckFi?.GetValue(dataSO) as IList;
+                var hand = handFi?.GetValue(dataSO) as IList;
+
+                if (deck == null) {
+                    log.LogWarning("NodeShopPrefix: Could not find _Deck list in ShopNodeDataSO.");
                     return;
                 }
 
-                log.LogInfo($"Found node list with {list.Count} items. Injecting modded nodes...");
-
+                // 3. Inject into Deck (the source of truth for the current shop session)
                 foreach (var hijack in _nodeRegistry) {
                     if (hijack.ShouldInject()) {
                         var template = hijack.GetTemplate();
-                        if (template != null && !list.Contains(template)) {
-                            list.Insert(0, template);
-                            log.LogInfo($"Injected node: {template.name}");
+                        if (template != null) {
+                            // Ensure it's in the Deck
+                            bool inDeck = false;
+                            foreach (var item in deck) if (item == template) { inDeck = true; break; }
+                            
+                            if (!inDeck) {
+                                deck.Insert(0, template);
+                                log.LogInfo($"Injected node into Deck: {template.name}");
+                            } else {
+                                // log.LogInfo($"Node {template.name} already in Deck.");
+                            }
+                        } else {
+                            log.LogWarning("Node Hijack Template is NULL!");
+                        }
+                    } else {
+                        // log.LogInfo("Node Hijack ShouldInject returned false.");
+                    }
+                }
+
+                // 4. Update the master array if necessary to prevent character filtering
+                if (masterFi != null) {
+                    var masterArray = masterFi.GetValue(dataSO) as Array;
+                    if (masterArray != null) {
+                        // Check if our nodes are in the master array
+                        foreach (var hijack in _nodeRegistry) {
+                            var template = hijack.GetTemplate();
+                            if (template == null) continue;
+                            
+                            bool found = false;
+                            for (int i = 0; i < masterArray.Length; i++) {
+                                if (masterArray.GetValue(i) == template) { found = true; break; }
+                            }
+
+                            if (!found) {
+                                // Expand array and add
+                                var newArray = Array.CreateInstance(masterArray.GetType().GetElementType(), masterArray.Length + 1);
+                                Array.Copy(masterArray, newArray, masterArray.Length);
+                                newArray.SetValue(template, masterArray.Length);
+                                masterFi.SetValue(dataSO, newArray);
+                                log.LogInfo($"Added {template.name} to ShopNodeDataSO master array.");
+                            }
                         }
                     }
                 }
