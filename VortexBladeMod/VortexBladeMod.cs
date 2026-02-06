@@ -118,9 +118,9 @@ namespace VortexBladeMod
                 GameObject b = new GameObject("VortexBlade_" + _blades.Count);
                 
                 var lr = b.AddComponent<LineRenderer>();
-                lr.startWidth = 0.25f; lr.endWidth = 0.05f; 
+                lr.startWidth = 0.1f; lr.endWidth = 0.02f; 
                 lr.material = new Material(Shader.Find("Sprites/Default"));
-                lr.startColor = new Color(0, 1, 1, 0.8f); lr.endColor = new Color(0, 0.5f, 1f, 0.4f);
+                lr.startColor = new Color(0, 1, 1, 0.4f); lr.endColor = new Color(0, 0.5f, 1f, 0.2f);
                 lr.positionCount = 2;
                 
                 var ps = b.AddComponent<ParticleSystem>();
@@ -138,26 +138,26 @@ namespace VortexBladeMod
                 } catch {}
 
                 var main = ps.main;
-                main.startColor = new Color(0.2f, 1f, 1f, 0.4f); 
-                main.startSize = 0.3f; 
-                main.startSpeed = 0.5f; 
+                main.startColor = new Color(0.2f, 1f, 1f, 0.333f); 
+                main.startSize = 0.15f; 
+                main.startSpeed = 0.2f; 
                 main.startLifetime = 0.2f; 
                 main.maxParticles = 500;
                 main.simulationSpace = ParticleSystemSimulationSpace.World; 
                 
                 var em = ps.emission; 
-                em.rateOverTime = 200f; 
+                em.rateOverTime = 100f; 
                 
                 var sh = ps.shape; 
                 sh.shapeType = ParticleSystemShapeType.Sphere; 
-                sh.radius = 0.6f; 
+                sh.radius = 0.3f; 
 
                 var col = ps.colorOverLifetime;
                 col.enabled = true;
                 Gradient grad = new Gradient();
                 grad.SetKeys(
                     new GradientColorKey[] { new GradientColorKey(Color.cyan, 0.0f), new GradientColorKey(Color.white, 0.5f), new GradientColorKey(Color.blue, 1.0f) },
-                    new GradientAlphaKey[] { new GradientAlphaKey(0.4f, 0.0f), new GradientAlphaKey(0.25f, 0.7f), new GradientAlphaKey(0.0f, 1.0f) }
+                    new GradientAlphaKey[] { new GradientAlphaKey(0.333f, 0.0f), new GradientAlphaKey(0.2f, 0.7f), new GradientAlphaKey(0.0f, 1.0f) }
                 );
                 col.color = grad;
                 
@@ -174,36 +174,41 @@ namespace VortexBladeMod
 
             if (targetCount <= 0) return;
 
-            _orbitAngle += Time.deltaTime * 150f;
-            float pulse = 1f + (Mathf.Sin(Time.time * 15f) * 0.2f); 
+            float rotationSpeed = 20f;
+            _orbitAngle += Time.deltaTime * rotationSpeed;
+            
+            float pulse = 1f + (Mathf.Sin(Time.time * 4f) * 0.15f); 
+            float scaleMult = 0.1f + (targetCount * 0.1f); // Grow with stacks
 
             // Damage Tick Logic
             bool isDamageTick = false;
             _damageTimer -= Time.deltaTime;
             if (_damageTimer <= 0) {
                 isDamageTick = true;
-                _damageTimer = 0.25f * Mathf.Pow(0.85f, targetCount - 1);
+                _damageTimer = 0.35f; // * Mathf.Pow(0.92f, targetCount - 1) // we are looking at this specifically
             }
 
             for (int i = 0; i < _blades.Count; i++) {
                 float angle = _orbitAngle + (i * (360f / _blades.Count));
                 float rad = angle * Mathf.Deg2Rad;
-                Vector3 pos = transform.position + new Vector3(Mathf.Cos(rad), Mathf.Sin(rad), 0) * 2.5f;
+                float orbitRadius = 0.1f + (targetCount * 0.05f);
+                float modifier = .25f;
+                Vector3 pos = transform.position + new Vector3(Mathf.Cos(rad)*modifier, Mathf.Sin(rad)*modifier, 0) * orbitRadius;
                 _blades[i].transform.position = pos;
                 
                 var lr = _blades[i].GetComponent<LineRenderer>();
                 Vector3 dir = (pos - transform.position).normalized;
                 
-                lr.SetPosition(0, pos - dir * 0.4f * pulse);
-                lr.SetPosition(1, pos + dir * 0.8f * pulse); 
-                lr.startWidth = 0.3f * pulse;
+                lr.SetPosition(0, pos - dir * 0.15f * pulse * scaleMult);
+                lr.SetPosition(1, pos + dir * 0.3f * pulse * scaleMult); 
+                lr.startWidth = 0.12f * pulse * scaleMult;
                 
-                float alphaPulse = 0.6f + (Mathf.Sin(Time.time * 20f) * 0.3f);
+                float alphaPulse = 0.5f + (Mathf.Sin(Time.time * 12f) * 0.1f);
                 lr.startColor = new Color(0, 1, 1, alphaPulse);
                 lr.endColor = new Color(0, 0.5f, 1f, alphaPulse * 0.5f);
 
                 if (isDamageTick) {
-                    DamageNearbyEnemies(pos, 1.4f);
+                    DamageNearbyEnemies(pos, 0.8f * scaleMult);
                 }
             }
         }
@@ -211,11 +216,16 @@ namespace VortexBladeMod
         void DamageNearbyEnemies(Vector3 pos, float range)
         {
             foreach (var e in FindObjectsOfType<Enemy>()) {
-                if (e != null && Vector3.Distance(e.transform.position, pos) <= range) {
+                if (e == null || !e.isActiveAndEnabled) continue;
+                
+                // Refine: Skip stationary targets if they lack a Rigidbody2D or NavMesh (similar to Singularity fix)
+                if (e.GetComponent<Rigidbody2D>() == null && e.GetComponent<UnityEngine.AI.NavMeshAgent>() == null) continue;
+
+                if (Vector3.Distance(e.transform.position, pos) <= range) {
                     var h = e.GetComponent<HealthComponent>();
                     if (h != null) {
                         bool died;
-                        float damage = (10f + (VortexBladePlugin.BladeStacks * 5f)) * (1f + (VortexBladePlugin.PlayerLevel * 0.2f));
+                        float damage = (1.5f + (VortexBladePlugin.BladeStacks * 1.5f));
                         
                         Vector3 pushDir = Vector3.zero;
                         if (VortexBladePlugin.BladeStacks >= 3) {
