@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Linq;
 using BepInEx;
 using HarmonyLib;
 using UnityEngine;
@@ -16,7 +17,7 @@ using NetAttackModUtils;
 
 namespace SingularityMod
 {
-    [BepInPlugin("com.matissetec.singularity", "Singularity Vortex Mod", "1.9.0")]
+    [BepInPlugin("com.matissetec.singularity", "Singularity Vortex Mod", "2.0.0")]
     public class SingularityPlugin : BaseUnityPlugin
     {
         public static SingularityPlugin Instance;
@@ -26,22 +27,22 @@ namespace SingularityMod
         public static bool IsOverheated = false;
 
         public static float MaxEnergy = 100f;
-        public static float BaseDrain = 8f;         
-        public static float DrainPerEnemy = 3.0f;   
-        public static float RechargeRate = 6f;     
-        public static float BaseSafeRadius = 4.5f;  
-        public static float MinSafeRadius = 1.5f;   
+        public static float BaseDrain = 10f;         
+        public static float DrainPerEnemy = 4.0f;   
+        public static float RechargeRate = 5f;     
+        public static float BaseSafeRadius = 2.2f;  
+        public static float MinSafeRadius = 0.8f;   
 
-        public static float BlastPush = .5f;     
-        public static float BlastDamage = .5f;
-        public static float MeltdownSelfDamage = 25f;
+        public static float BlastPush = .3f;     
+        public static float BlastDamage = 0.1f;
+        public static float MeltdownSelfDamage = 20f;
 
         public static bool IsInShop = false;
         public static bool IsInCodingScreen = false;
         public static int PlayerLevel = 1;
         public static int SingularityLevel = 0;
 
-        public const string UPGRADE_ID = "biSKigvSH0meTM/+oJv8ig";
+        public const string UPGRADE_ID = "SINGULARITY_VORTEX_UPGRADE";
         private static ScriptableObject _cachedUpgrade;
 
         void Awake()
@@ -49,36 +50,38 @@ namespace SingularityMod
             Instance = this;
             Log = Logger;
             
-            Harmony harmony = new Harmony("com.matissetec.singularity");
-            harmony.PatchAll(typeof(SingularityPlugin));
-            
-            // Register with centralized pool - Logic for "at most 2" and "no replication" is now in ModUtils
-            ModUtils.RegisterModdedUpgrade(harmony, GetVortexTemplate, () => true);
+            try {
+                Harmony harmony = new Harmony("com.matissetec.singularity");
+                
+                // 1. Patch database to inject our template
+                ModUtils.PatchSafe(harmony, Log, "BRG.DataManagement.DatabaseUpgradeBuilder", "BuildUpgrades", typeof(UpgradeDatabasePatch));
 
-            ModUtils.AddUpgradeSelectionTracker(harmony, (index, upgrade) => {
-                if (upgrade != null && (string)AccessTools.Field(upgrade.GetType(), "id")?.GetValue(upgrade) == UPGRADE_ID) {
-                    SingularityPlugin.SingularityLevel++;
-                    var behavior = UnityEngine.Object.FindObjectOfType<SingularityBehavior>();
-                    if (behavior != null) behavior.Invoke("ApplyUpgrades", 0.1f);
-                }
-            });
-            
-            Log.LogInfo(">>> SINGULARITY MOD ONLINE <<<");
-        }
+                // 2. Register with centralized shop system
+                ModUtils.RegisterModdedUpgrade(harmony, () => _cachedUpgrade, () => SingularityLevel < 5);
 
-        static ScriptableObject GetVortexTemplate()
-        {
-            if (_cachedUpgrade == null) {
-                Type type = AccessTools.TypeByName("MetagameUpgradeSO");
-                var all = Resources.FindObjectsOfTypeAll(type);
-                foreach (var obj in all) {
-                    if ((string)AccessTools.Field(type, "id").GetValue(obj) == UPGRADE_ID) {
-                        _cachedUpgrade = (ScriptableObject)obj;
-                        break;
+                // 3. Track selections
+                ModUtils.AddUpgradeSelectionTracker(harmony, (index, upgrade) => {
+                    if (upgrade != null && upgrade == _cachedUpgrade) {
+                        SingularityPlugin.SingularityLevel++;
+                        Log.LogInfo($"Singularity Vortex leveled up! Level: {SingularityLevel}");
+                    }
+                });
+
+                // 4. Localization for the upgrade
+                var i2Loc = AccessTools.TypeByName("I2.Loc.LocalizationManager");
+                if (i2Loc != null) {
+                    var mGetTranslation = i2Loc.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                                            .FirstOrDefault(m => m.Name == "GetTranslation" && m.GetParameters().Length > 0);
+                    if (mGetTranslation != null) {
+                        harmony.Patch(mGetTranslation, new HarmonyMethod(AccessTools.Method(typeof(StringLocPatch), "Prefix")));
                     }
                 }
+
+                harmony.PatchAll(typeof(SingularityPlugin));
+                Log.LogInfo(">>> SINGULARITY MOD ONLINE <<<");
+            } catch (Exception e) {
+                Log.LogError("Patching Failed: " + e);
             }
-            return _cachedUpgrade;
         }
 
         [HarmonyPatch(typeof(Player), "Awake")]
@@ -93,7 +96,7 @@ namespace SingularityMod
         [HarmonyPrefix]
         static void EnemyDeath_Patch(Enemy __instance)
         {
-            if (!IsActive || IsOverheated || IsInShop || IsInCodingScreen) return;
+            if (!IsActive || IsOverheated || IsInShop || IsInCodingScreen || SingularityLevel == 0) return;
             var behavior = UnityEngine.Object.FindObjectOfType<SingularityBehavior>();
             if (behavior == null) return;
 
@@ -104,6 +107,41 @@ namespace SingularityMod
                     behavior.ConsumeEnergy(energyCost);
                     SingularityBehavior.HealPlayer(2f); 
                 }
+            }
+        }
+    }
+
+    public static class StringLocPatch
+    {
+        public static bool Prefix(string Term, ref string __result)
+        {
+            if (string.IsNullOrEmpty(Term)) return true;
+            if (Term == "SINGULARITY_KEY") { __result = "SINGULARITY VORTEX"; return false; }
+            if (Term == "SINGULARITY_DESC") { __result = "Hold G to pull enemies into a gravity well. Release to blast them back. Upgrades increase radius and damage."; return false; }
+            return true;
+        }
+    }
+
+    public static class UpgradeDatabasePatch
+    {
+        public static void Postfix(object __instance)
+        {
+            try {
+                var flags = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
+                var listFi = __instance.GetType().GetFields(flags).FirstOrDefault(f => f.Name == "_runUpgrades" || f.Name == "_gameplayUpgrades");
+                var list = listFi?.GetValue(__instance) as IList;
+
+                if (list != null && list.Count > 0) {
+                    // Use a common upgrade as a template (e.g., first in list)
+                    var type = AccessTools.TypeByName("MetagameUpgradeSO");
+                    var template = ModUtils.CreateTemplate<ScriptableObject>(list, "", SingularityPlugin.UPGRADE_ID, "SINGULARITY_KEY", "SINGULARITY_DESC");
+                    
+                    // Store it globally for Singularity mod
+                    typeof(SingularityPlugin).GetField("_cachedUpgrade", BindingFlags.Static | BindingFlags.NonPublic).SetValue(null, template);
+                    SingularityPlugin.Log.LogInfo("Singularity Vortex Upgrade Template Injected into Database.");
+                }
+            } catch (Exception e) {
+                SingularityPlugin.Log.LogError("UpgradeDatabasePatch Error: " + e.Message);
             }
         }
     }
@@ -136,24 +174,12 @@ namespace SingularityMod
 
         void ApplyUpgrades()
         {
-            int totalUpgrades = 0;
-            try {
-                var asm = typeof(RunUpgradeShopController).Assembly;
-                var rdcType = asm.GetType("BRG.DataManagement.RunDataController");
-                if (rdcType != null) {
-                    var instance = rdcType.GetProperty("Instance", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
-                    if (instance != null) {
-                        var list = rdcType.GetMethod("GetRunUpgrades")?.Invoke(instance, null) as IList;
-                        if (list != null) totalUpgrades = list.Count;
-                    }
-                }
-            } catch {}
-
-            int finalLevel = totalUpgrades + SingularityPlugin.SingularityLevel;
+            int finalLevel = SingularityPlugin.SingularityLevel;
             if (finalLevel != _lastLevel) {
                 _lastLevel = finalLevel;
                 _maxRadius = SingularityPlugin.BaseSafeRadius * (1f + (finalLevel * 0.10f));
-                _blastDamage = SingularityPlugin.BlastDamage + (finalLevel * 2.0f);
+                _blastDamage = SingularityPlugin.BlastDamage + (finalLevel * 0.75f);
+                SingularityPlugin.Log.LogInfo($"Singularity stats updated: Level {finalLevel}, MaxRadius {_maxRadius}, Damage {_blastDamage}");
             }
         }
 
@@ -207,11 +233,6 @@ namespace SingularityMod
 
         void Update()
         {
-            if (Input.GetKeyDown(KeyCode.U)) {
-                SingularityPlugin.SingularityLevel++;
-                ApplyUpgrades();
-            }
-
             SingularityPlugin.IsInCodingScreen = ModUtils.IsCodingScreenActive(SingularityPlugin.IsInCodingScreen, ref _movementHoldTimer);
 
             _uiUpdateTimer -= Time.deltaTime;
@@ -222,7 +243,7 @@ namespace SingularityMod
                 _uiUpdateTimer = 1.0f;
             }
 
-            if (SingularityPlugin.IsInShop || SingularityPlugin.IsInCodingScreen) {
+            if (SingularityPlugin.IsInShop || SingularityPlugin.IsInCodingScreen || SingularityPlugin.SingularityLevel == 0) {
                 if (_fieldVisual != null && _fieldVisual.activeSelf) _fieldVisual.SetActive(false);
                 return;
             }
@@ -246,11 +267,16 @@ namespace SingularityMod
                 _scanTimer = 0.2f;
             }
 
-            float pullForce = (25f + SingularityPlugin.PlayerLevel * 2f) * Time.deltaTime; 
-            float orbitForce = 20f * Time.deltaTime;
+            float pullForce = (7f + SingularityPlugin.PlayerLevel * 0.5f) * Time.deltaTime; 
+            float orbitForce = 10f * Time.deltaTime;
 
             foreach (var enemy in _nearbyEnemies) {
                 if (enemy == null || !enemy.isActiveAndEnabled) continue;
+                
+                // Only pull if it looks like a mobile unit (has a Move component or similar)
+                // Stationary structures usually don't have these, or have 'isStatic' flags.
+                if (enemy.GetComponent<Rigidbody2D>() == null && enemy.GetComponent<UnityEngine.AI.NavMeshAgent>() == null) continue;
+
                 Vector3 toPlayer = transform.position - enemy.transform.position;
                 float dist = toPlayer.magnitude;
                 Vector3 dirToPlayer = toPlayer.normalized;
@@ -328,7 +354,7 @@ namespace SingularityMod
                 Vector3 dir = toEnemy.normalized;
                 float dist = toEnemy.magnitude;
                 
-                float power = SingularityPlugin.BlastPush + (SingularityPlugin.SingularityLevel * 0.2f);
+                float power = SingularityPlugin.BlastPush + (SingularityPlugin.SingularityLevel * 0.25f);
                 float pushDist = Mathf.Clamp(power * (3.0f / (dist + 1f)), 2.0f, 8.0f);
                 enemy.transform.position += dir * pushDist; 
 
@@ -354,7 +380,7 @@ namespace SingularityMod
         
         void OnGUI()
         {
-            if (SingularityPlugin.IsInShop || SingularityPlugin.IsInCodingScreen) return;
+            if (SingularityPlugin.IsInShop || SingularityPlugin.IsInCodingScreen || SingularityPlugin.SingularityLevel == 0) return;
             float width = 300f;
             float height = 12f; 
             float padding = 8f;
@@ -382,7 +408,7 @@ namespace SingularityMod
             
             string status = SingularityPlugin.IsActive ? "ACTIVE" : "OFF";
             if (SingularityPlugin.IsOverheated) status = "OVERHEATED";
-            int displayTier = _lastLevel >= 0 ? _lastLevel : 0;
+            int displayTier = SingularityPlugin.SingularityLevel;
             string text = $"VORTEX [{status}] TIER {displayTier}: {(int)CurrentEnergy}%";
             GUI.Label(new Rect(x, y - 18f, width, 20f), text, style);
         }
