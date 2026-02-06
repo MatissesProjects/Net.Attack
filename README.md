@@ -1,37 +1,28 @@
-# Set of Mod for Net.Attack()
+# Net.Attack Mod Collection
 
-BepInEx mods for **Net.Attack()** that adds some interesting different possibilities in the game.
+A comprehensive set of modular mods for Net.Attack, built on a robust shared utility framework.
 
-## Overview
+## Architecture
 
-These are just a few of the mods we have created so far for this game so we can keep track of what is possible from our side.
+This project is designed with modularity and stability in mind. All mods depend on **[NetAttackModUtils](./NetAttackModUtils)**, which provides:
+- **Centralized Injection**: A conflict-free system for injecting items into the Upgrade Shop and Node Terminal.
+- **Safe Patching**: Wrappers to prevent crashes during game updates.
+- **Standardized Helpers**: Unified methods for creating templates, modifying logic, and detecting game state.
 
-## Goal 
+## Modules
 
-I want to learn how to mod, and where the limit is of me being able to use BepInEx vs needing to modify the actual dll.
+### Upgrades (The Shop)
+- **[HyperSpeedMod](./HyperSpeedMod)**: Insane movement speed and character growth.
+- **[VortexBladeMod](./VortexBladeMod)**: Orbital spectral blades with scaling damage and speed.
+- **[SingularityMod](./SingularityMod)**: Powerful gravitational vortex ability with custom UI and energy mechanics.
 
-Very interested in seeing what we can do and what we can hook into. If you want to help please feel free to suggest anything.
+*Note: These mods use a randomized injection system. They will compete for up to 2 slots in the shop to ensure a balanced experience.*
 
-## Installation
+### Nodes (The Terminal)
+- **[NodeExpansionPack](./NodeExpansionPack)**: Adds new high-powered nodes like the MEGA PROCESSOR and INSTA-KILL.
+- **[NodeMasterMod](./NodeMasterMod)**: A global overclock mod that makes all standard nodes cheaper and faster.
 
-1.  In the zip there will be all the needed files for **BepInEx**.
-2.  Place the `MyNetAttackMod.dll` file into your `BepInEx/plugins` folder.
-3.  If you dont have one copy the one from the zip
-4.  Launch the game.
-
-## Building from Source
-
-To build these projects, you need the game DLLs referenced in the `.csproj` file.
-
-1.  Clone this repository.
-2.  Update the `<HintPath>` in `TestLibrary.csproj` to point to your local Net.Attack() game folder.
-    *   *Default path assumed:* `C:\Program Files (x86)\Steam\steamapps\common\ForeachHack\NetAttack\...`
-3.  Build using Visual Studio or the .NET CLI:
-    ```bash
-    dotnet build
-    ```
-
-## Dependencies
-
-*   [BepInEx](https://github.com/BepInEx/BepInEx)
-*   [Harmony](https://github.com/pardeike/Harmony)
+## Build Instructions
+1. Open the solution in your preferred IDE.
+2. Ensure you have the game dependencies (Assembly-CSharp.dll, etc.) referenced correctly.
+3. Build the solution. All mods will output to their respective `bin/Debug/netstandard2.1/` folders.
