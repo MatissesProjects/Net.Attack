@@ -17,7 +17,7 @@ This project is designed with modularity and stability in mind. All mods depend 
 - **[ModManager](./ModManager)**: Utility project for managing mod state and interactions.
 
 ### ⚡ Upgrades (The Shop)
-- **[HyperSpeedMod](./HyperSpeedMod)**: Insane movement speed and character growth.
+- **[SizeIncreaseMod](./SizeIncreaseMod)**: Increases player size and applies visual effects.
 - **[VortexBladeMod](./VortexBladeMod)**: Orbital spectral blades with scaling damage and speed.
 - **[SingularityMod](./SingularityMod)**: Powerful gravitational vortex ability with custom UI and energy mechanics.
 

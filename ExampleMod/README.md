@@ -1,18 +1,15 @@
-# Example Mod for Net.Attack()
+# Example Mod
 
-A BepInEx mod for **Net.Attack()** that adds a lot of damage, you always deal 420 damage with this mod.
+This is a template project designed to help you start modding Net.Attack.
 
-## Overview
+## How to use
 
-The **Example Mod** is a super simple mod to lead as an example of modding non-destructively.
+1.  **Copy this folder**: Duplicate the `ExampleMod` directory.
+2.  **Rename**: Rename the folder and the `.csproj` file to your new mod name.
+3.  **Edit**: Open `NetAttackMod.cs` and follow the comments.
+4.  **Build**: Run `dotnet build` to create your mod DLL.
 
-### Key Features
+## Features
 
-*   you now deal 420 damage
-
-## Installation
-
-1.  Ensure you have **BepInEx** installed for Net.Attack().
-2.  Download the latest release of this mod.
-3.  Place the `MyNetAttackMod.dll` file into your `BepInEx/plugins` folder.
-4.  Launch the game.
+- Uses `NetAttackModUtils` for safe and easy patching.
+- Includes a simple "God Mode" example that prevents damage using the `ModUtils.PatchSafe` utility.
