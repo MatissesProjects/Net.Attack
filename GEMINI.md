@@ -1,8 +1,10 @@
 ## Gemini Added Memories
-- When asked to deploy or sync mods, iterate through each project folder, locate the DLL in `bin\Debug\netstandard2.1\`, and copy it to `C:\Program Files (x86)\Steam\steamapps\common\ForeachHack\NetAttack\BepInEx\plugins` ONLY if the file already exists in the destination (performing a replacement).
-- ALWAYS build the mod to see if there are errors before deployment.
-- When starting a new project go through multiple planning steps, and create a plan document for future following.
-- After big changes attempt to break into good chunks for git commits.
+- **Centralized Architecture**: Always prefer moving logic to `NetAttackModUtils` if it's reused across mods (e.g., patching, shop injection, state detection).
+- **Deployment Strategy**: When deploying, check for existing DLLs in the game folder. Replace existing ones to update, but be cautious about adding new files unless explicitly intended. The standard script handles this logic.
+- **Shop Hijacking**: Do not manually patch `UpgradeShop:SetupShop` in individual mods. Use `ModUtils.RegisterModdedUpgrade` to ensure fair slot distribution and prevent conflicts/crashes.
+- **Node Injection**: Use `ModUtils.AddNodeShopHijack` to safely insert nodes into the terminal shop.
+- **Templates**: Always use `ModUtils.CreateTemplate<T>` when making new ScriptableObjects to ensure they inherit valid internal state from the game.
+- **Safety**: Always wrap patches in `try-catch` blocks or use `ModUtils.PatchSafe`.
 
 ---
 
@@ -33,7 +35,8 @@ foreach ($mod in $mods) {
             Copy-Item -Path $srcPath -Destination $destPath -Force;
             Write-Host "Updated: $dllName";
         } else {
-            Write-Host "Skipped (Not present in destination): $dllName";
+            Copy-Item -Path $srcPath -Destination $destPath -Force;
+            Write-Host "Deployed New: $dllName";
         }
     }
 }
@@ -60,9 +63,15 @@ ModUtils.PatchSafe(harmony, Log, "ClassName", "MethodName", typeof(PatchType));
 ```
 
 #### `RegisterModdedUpgrade`
-Registers an upgrade with the centralized injection system. The system handles randomization and duplicate prevention automatically.
+Registers an upgrade with the centralized injection system. The system handles randomization (max 2 slots) and duplicate prevention automatically.
 ```csharp
 ModUtils.RegisterModdedUpgrade(harmony, () => myTemplate, () => shouldInject);
+```
+
+#### `AddUpgradeSelectionTracker`
+Tracks when an upgrade is selected in the shop.
+```csharp
+ModUtils.AddUpgradeSelectionTracker(harmony, (index, upgrade) => { ... });
 ```
 
 #### `AddNodeShopHijack`
@@ -77,6 +86,35 @@ Helpers for detecting game state.
 if (ModUtils.IsShopOpen()) { ... }
 status = ModUtils.IsCodingScreenActive(status, ref timer);
 ```
+
+#### `GetPlayerLevel`
+Safely retrieves the current player's level via reflection.
+```csharp
+int level = ModUtils.GetPlayerLevel(this);
+```
+
+<details>
+<summary><i>Advanced: Reflection Helpers</i></summary>
+
+#### `SetField`
+A recursive reflection helper that finds and sets fields or properties by name.
+```csharp
+ModUtils.SetField(obj, typeof(MyType), "_internalField", value);
+```
+
+#### `SetActionField`
+Specific helper for `NodeSO` objects to modify the internal `ActionBase` logic.
+```csharp
+ModUtils.SetActionField(node, "cooldown", 0.05f);
+```
+
+#### `CreateTemplate<T>`
+Clones an existing `ScriptableObject` from a list by its ID and applies new metadata in one step.
+```csharp
+var newNode = ModUtils.CreateTemplate<ScriptableObject>(list, "TemplateID", "NewID", "Name", "Desc");
+```
+
+</details>
 
 </details>
 
