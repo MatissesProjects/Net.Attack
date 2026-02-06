@@ -52,6 +52,7 @@ namespace NetAttackModUtils
             SetField(obj, type, "_basePrice", 1);
             SetField(obj, type, "_maxCount", 5);
             SetField(obj, type, "_maxUpgradeLevel", 5);
+            SetField(obj, type, "_isActive", true);
             
             foreach (var w in new[] { "gameplayUpgrade", "nodeUpgrade", "metaUpgrade", "upgrade" }) ModifyWrapper(obj, type, w, descKey);
 
@@ -222,6 +223,37 @@ namespace NetAttackModUtils
             return false;
         }
 
+        public static void DumpFields(BepInEx.Logging.ManualLogSource Log, object obj, string label = "Dump")
+        {
+            if (obj == null) { Log.LogInfo($"[{label}] Object is null"); return; }
+            try {
+                Type type = obj.GetType();
+                Log.LogInfo($"--- {label} (Type: {type.Name}) ---");
+                foreach (var f in type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)) {
+                    object val = "null";
+                    try { val = f.GetValue(obj); } catch {}
+                    Log.LogInfo($"{f.Name} ({f.FieldType.Name}): {val}");
+                }
+            } catch (Exception e) {
+                Log.LogError($"Error dumping fields for {label}: {e.Message}");
+            }
+        }
+
+        public static void InspectEnum(BepInEx.Logging.ManualLogSource Log, string enumName)
+        {
+            try {
+                Type enumType = AccessTools.TypeByName(enumName);
+                if (enumType != null && enumType.IsEnum) {
+                    Log.LogInfo($"--- Enum Inspection: {enumName} ---");
+                    foreach (var name in Enum.GetNames(enumType)) {
+                        Log.LogInfo($"{name} = {(int)Enum.Parse(enumType, name)}");
+                    }
+                }
+            } catch (Exception e) {
+                Log.LogError($"Error inspecting enum {enumName}: {e.Message}");
+            }
+        }
+
         // --- CLEAN CENTRALIZED SHOP SYSTEM ---
 
         private static List<HijackData> _upgradeRegistry = new List<HijackData>();
@@ -309,22 +341,38 @@ namespace NetAttackModUtils
         private static void NodeShopPrefix(object __instance)
         {
             try {
+                // Log that we are here
+                var log = BepInEx.Logging.Logger.CreateLogSource("ModUtils_Shop");
+                log.LogInfo("NodeShopPrefix triggered!");
+
                 var flags = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
                 var field = __instance.GetType().GetFields(flags).FirstOrDefault(f => f.FieldType.Name.Contains("List") && f.Name.ToLower().Contains("node"));
-                if (field == null) return;
+                if (field == null) {
+                    log.LogWarning("Could not find node list field in Shop!");
+                    return;
+                }
 
                 var list = field.GetValue(__instance) as IList;
-                if (list == null) return;
+                if (list == null) {
+                    log.LogWarning("Node list field is null!");
+                    return;
+                }
+
+                log.LogInfo($"Found node list with {list.Count} items. Injecting modded nodes...");
 
                 foreach (var hijack in _nodeRegistry) {
                     if (hijack.ShouldInject()) {
                         var template = hijack.GetTemplate();
                         if (template != null && !list.Contains(template)) {
                             list.Insert(0, template);
+                            log.LogInfo($"Injected node: {template.name}");
                         }
                     }
                 }
-            } catch {}
+            } catch (Exception e) {
+                var log = BepInEx.Logging.Logger.CreateLogSource("ModUtils_Shop_Err");
+                log.LogError($"Error in NodeShopPrefix: {e.Message}");
+            }
         }
     }
 }
