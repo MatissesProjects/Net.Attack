@@ -2,12 +2,16 @@
 
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
-    <AssemblyName>ShotgunMod</AssemblyName>
-    <Description>Global Shotgun Mod - Increases projectile count but adds a cost</Description>
+    <AssemblyName>NodeExpansionPack</AssemblyName>
+    <Description>Expansion Pack with new custom nodes for NetAttack</Description>
     <Version>1.0.0</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NetAttackModUtils\NetAttackModUtils.csproj" />
+  </ItemGroup>
 
   <ItemGroup>
     <Reference Include="BepInEx">
@@ -78,6 +82,7 @@
     </Reference>
     <Reference Include="UnityEngine.IMGUIModule">
       <HintPath>C:\Program Files (x86)\Steam\steamapps\common\ForeachHack\NetAttack\Net.Attack()_Data\Managed\UnityEngine.IMGUIModule.dll</HintPath>
+      <Private>False</Private>
     </Reference>
     <Reference Include="MessageSystem">
       <HintPath>C:\Program Files (x86)\Steam\steamapps\common\ForeachHack\NetAttack\Net.Attack()_Data\Managed\MessageSystem.dll</HintPath>

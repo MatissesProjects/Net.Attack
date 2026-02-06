@@ -20,9 +20,14 @@ namespace NetAttackModUtils
                 if (method != null) {
                     MethodInfo prefix = patchType.GetMethod("Prefix");
                     MethodInfo postfix = patchType.GetMethod("Postfix");
-                    if (prefix == null && postfix == null) return;
+                    if (prefix == null && postfix == null) {
+                        Log.LogWarning($"Patch failed: No Prefix or Postfix found in {patchType.Name}");
+                        return;
+                    }
                     harmony.Patch(method, prefix != null ? new HarmonyMethod(prefix) : null, postfix != null ? new HarmonyMethod(postfix) : null);
                     Log.LogInfo($"Successfully patched {className}:{methodName}");
+                } else {
+                    Log.LogWarning($"Patch failed: Method {className}:{methodName} not found.");
                 } 
             } catch (Exception e) {
                 Log.LogError($"Error patching {className}:{methodName}: {e.Message}");
@@ -78,8 +83,6 @@ namespace NetAttackModUtils
             return SetField(obj, type.BaseType, name, value);
         }
 
-        // --- NEW SHARED HELPERS ---
-
         public static int GetPlayerLevel(MonoBehaviour component)
         {
             try {
@@ -127,8 +130,6 @@ namespace NetAttackModUtils
             return currentStatus; 
         }
 
-        // --- NODE MODIFICATION UTILS ---
-
         public static void FindAndModifyNodes(BepInEx.Logging.ManualLogSource Log, Action<ScriptableObject> modificationCallback)
         {
             try {
@@ -138,8 +139,6 @@ namespace NetAttackModUtils
                 var allNodes = Resources.FindObjectsOfTypeAll(nodeType);
                 if (allNodes.Length == 0) return;
 
-                Log.LogInfo($"[ModUtils] Scanning {allNodes.Length} nodes...");
-                
                 foreach (var obj in allNodes) {
                     if (obj == null) continue;
                     modificationCallback?.Invoke(obj as ScriptableObject);
@@ -168,6 +167,164 @@ namespace NetAttackModUtils
                 }
             } catch {}
             return modified;
+        }
+
+        public static T CreateTemplate<T>(IList list, string templateId, string newId, string name, string desc) where T : ScriptableObject
+        {
+            object template = null;
+            Type type = typeof(T);
+            var idField = AccessTools.Field(type, "id") ?? AccessTools.Field(type, "_id");
+
+            foreach (var item in list) {
+                if (item == null) continue;
+                var id = idField?.GetValue(item) as string;
+                if (id == templateId) {
+                    template = item;
+                    break;
+                }
+            }
+
+            if (template == null && list.Count > 0) template = list[0];
+            if (template == null) return null;
+
+            T newObj = UnityEngine.Object.Instantiate((T)template);
+            newObj.name = newId;
+            ApplyMetadata(newObj, newId, name, desc);
+            return newObj;
+        }
+
+        public static object FindInList(IList list, string id, Type type = null)
+        {
+            if (list == null) return null;
+            if (type == null && list.Count > 0 && list[0] != null) type = list[0].GetType();
+            if (type == null) return null;
+
+            var idField = AccessTools.Field(type, "id") ?? AccessTools.Field(type, "_id");
+            foreach (var item in list) {
+                if (item == null) continue;
+                if (idField?.GetValue(item) as string == id) return item;
+            }
+            return null;
+        }
+
+        public static bool SetActionField(ScriptableObject node, string fieldName, object value)
+        {
+            try {
+                Type nodeType = node.GetType();
+                var actionFi = AccessTools.Field(nodeType, "_action");
+                if (actionFi != null) {
+                    var action = actionFi.GetValue(node);
+                    if (action != null) {
+                        return SetField(action, action.GetType(), fieldName, value);
+                    }
+                }
+            } catch {}
+            return false;
+        }
+
+        // --- CLEAN CENTRALIZED SHOP SYSTEM ---
+
+        private static List<HijackData> _upgradeRegistry = new List<HijackData>();
+        private static List<HijackData> _nodeRegistry = new List<HijackData>();
+        private static Action<int, object> _onUpgradeSelected;
+        private static System.Random _rnd = new System.Random();
+        
+        private class HijackData { public Func<ScriptableObject> GetTemplate; public Func<bool> ShouldInject; }
+
+        public static void RegisterModdedUpgrade(Harmony harmony, Func<ScriptableObject> getTemplate, Func<bool> shouldInject)
+        {
+            if (_upgradeRegistry.Count == 0) {
+                var method = AccessTools.Method("BRG.UI.UpgradeShop:SetupShop");
+                if (method != null) harmony.Patch(method, new HarmonyMethod(AccessTools.Method(typeof(ModUtils), nameof(UpgradeShopPrefix))));
+            }
+            _upgradeRegistry.Add(new HijackData { GetTemplate = getTemplate, ShouldInject = shouldInject });
+        }
+
+        private static void UpgradeShopPrefix(object[] __args)
+        {
+            if (__args == null || __args.Length == 0) return;
+            var upgrades = __args[0] as IList;
+            if (upgrades == null || upgrades.Count == 0) return;
+
+            // 1. Collect all eligible templates (unique)
+            var eligible = new List<ScriptableObject>();
+            foreach (var mod in _upgradeRegistry) {
+                if (mod.ShouldInject()) {
+                    var template = mod.GetTemplate();
+                    if (template != null && !eligible.Contains(template)) {
+                        eligible.Add(template);
+                    }
+                }
+            }
+
+            if (eligible.Count == 0) return;
+
+            // 2. Pick a random subset (at most 2)
+            int numToInject = Math.Min(eligible.Count, 2);
+            var toInject = eligible.OrderBy(x => _rnd.Next()).Take(numToInject).ToList();
+
+            // 3. Inject into random unique slots
+            var slots = Enumerable.Range(0, upgrades.Count).OrderBy(x => _rnd.Next()).Take(numToInject).ToList();
+            for (int i = 0; i < toInject.Count; i++) {
+                upgrades[slots[i]] = toInject[i];
+            }
+        }
+
+        public static void AddUpgradeSelectionTracker(Harmony harmony, Action<int, object> onSelected)
+        {
+            if (_onUpgradeSelected == null) {
+                var method = AccessTools.Method("BRG.Gameplay.Upgrades.RunUpgradeShopController:OnUpgradeSelected");
+                if (method != null) harmony.Patch(method, new HarmonyMethod(AccessTools.Method(typeof(ModUtils), nameof(SelectionPrefix))));
+            }
+            _onUpgradeSelected += onSelected;
+        }
+
+        private static void SelectionPrefix(object __instance, object[] __args)
+        {
+            try {
+                if (__args == null || __args.Length == 0) return;
+                object message = __args[0];
+                if (message == null) return;
+
+                var msgFields = message.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                var indexFi = msgFields.FirstOrDefault(f => f.Name.ToLower().Contains("index"));
+                int selectedIndex = (indexFi != null) ? (int)indexFi.GetValue(message) : -1;
+                
+                var upgradeFi = msgFields.FirstOrDefault(f => f.Name.Contains("Upgrade") || f.FieldType.Name.Contains("SO"));
+                object selectedUpgrade = (upgradeFi != null) ? upgradeFi.GetValue(message) : null;
+
+                _onUpgradeSelected?.Invoke(selectedIndex, selectedUpgrade);
+            } catch {}
+        }
+
+        public static void AddNodeShopHijack(Harmony harmony, Func<ScriptableObject> getTemplate, Func<bool> shouldInject)
+        {
+            if (_nodeRegistry.Count == 0) {
+                var method = AccessTools.Method("BRG.NodeSystem.Shop:SpawnNewNodes");
+                if (method != null) harmony.Patch(method, new HarmonyMethod(AccessTools.Method(typeof(ModUtils), nameof(NodeShopPrefix))));
+            }
+            _nodeRegistry.Add(new HijackData { GetTemplate = getTemplate, ShouldInject = shouldInject });
+        }
+
+        private static void NodeShopPrefix(object __instance)
+        {
+            try {
+                var flags = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
+                var field = __instance.GetType().GetFields(flags).FirstOrDefault(f => f.FieldType.Name.Contains("List") && f.Name.ToLower().Contains("node"));
+                if (field == null) return;
+
+                var list = field.GetValue(__instance) as IList;
+                if (list == null) return;
+
+                foreach (var hijack in _nodeRegistry) {
+                    if (hijack.ShouldInject()) {
+                        var template = hijack.GetTemplate();
+                        if (template != null && !list.Contains(template)) {
+                            list.Insert(0, template);
+                        }
+                    }
+                }
+            } catch {}
         }
     }
 }

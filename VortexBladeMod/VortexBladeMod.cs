@@ -32,9 +32,16 @@ namespace VortexBladeMod
             try {
                 Harmony harmony = new Harmony("com.matissetec.vortexblade");
                 ModUtils.PatchSafe(harmony, Log, "BRG.DataManagement.DatabaseUpgradeBuilder", "BuildUpgrades", typeof(UpgradeDatabasePatch));
-                ModUtils.PatchSafe(harmony, Log, "BRG.UI.UpgradeShop", "SetupShop", typeof(ShopHijackPatch));
-                ModUtils.PatchSafe(harmony, Log, "BRG.Gameplay.Upgrades.RunUpgradeShopController", "OnUpgradeSelected", typeof(SelectionTrackerPatch));
                 
+                // Register with centralized pool
+                ModUtils.RegisterModdedUpgrade(harmony, () => BladeTemplate, () => BladeStacks < 5);
+                
+                ModUtils.AddUpgradeSelectionTracker(harmony, (index, upgrade) => {
+                    if (upgrade != null && upgrade == BladeTemplate) {
+                        if (BladeStacks < 5) BladeStacks++;
+                    }
+                });
+
                 var i2Loc = AccessTools.TypeByName("I2.Loc.LocalizationManager");
                 if (i2Loc != null) {
                     var mGetTranslation = i2Loc.GetMethods(BindingFlags.Public | BindingFlags.Static)
@@ -75,54 +82,8 @@ namespace VortexBladeMod
                 var list = listFi?.GetValue(__instance) as IList;
 
                 if (list != null && list.Count > 0) {
-                    var template = list[0] as ScriptableObject;
-                    if (template != null) {
-                        VortexBladePlugin.BladeTemplate = UnityEngine.Object.Instantiate(template);
-                        ModUtils.ApplyMetadata(VortexBladePlugin.BladeTemplate, VortexBladePlugin.BLADE_ID, "VORTEX_BLADE_KEY", "VORTEX_BLADE_DESC");
-                        VortexBladePlugin.Log.LogWarning("Vortex Blade Template Created.");
-                    }
-                }
-            } catch {}
-        }
-    }
-
-    public static class ShopHijackPatch
-    {
-        public static void Prefix(object[] __args)
-        {
-            if (__args == null || __args.Length == 0) return;
-            var upgrades = __args[0] as IList;
-            if (upgrades == null || upgrades.Count < 2) return;
-
-            try {
-                // Hijack Slot 1 (keeping original logic for now)
-                if (VortexBladePlugin.BladeStacks < 5) upgrades[1] = VortexBladePlugin.BladeTemplate;
-            } catch {}
-        }
-    }
-
-    public static class SelectionTrackerPatch
-    {
-        public static void Prefix(object __instance, object[] __args)
-        {
-            try {
-                if (__args == null || __args.Length == 0) return;
-                object message = __args[0];
-                if (message == null) return;
-
-                var listFi = __instance.GetType().GetFields(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public).FirstOrDefault(f => f.Name == "_upgradeSOs");
-                var list = listFi?.GetValue(__instance) as IList;
-                if (list != null && list.Count >= 2) {
-                    if (VortexBladePlugin.BladeTemplate != null) list[1] = VortexBladePlugin.BladeTemplate;
-                }
-
-                var msgFields = message.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                var indexFi = msgFields.FirstOrDefault(f => f.Name.ToLower().Contains("index"));
-                int selectedIndex = (indexFi != null) ? (int)indexFi.GetValue(message) : -1;
-                var upgradeFi = msgFields.FirstOrDefault(f => f.Name.Contains("Upgrade") || f.FieldType.Name.Contains("SO"));
-
-                if (selectedIndex == 1 || (upgradeFi != null && upgradeFi.GetValue(message) == VortexBladePlugin.BladeTemplate)) {
-                    if (VortexBladePlugin.BladeStacks < 5) VortexBladePlugin.BladeStacks++;
+                    VortexBladePlugin.BladeTemplate = ModUtils.CreateTemplate<ScriptableObject>(list, "", VortexBladePlugin.BLADE_ID, "VORTEX_BLADE_KEY", "VORTEX_BLADE_DESC");
+                    VortexBladePlugin.Log.LogWarning("Vortex Blade Template Created.");
                 }
             } catch {}
         }
@@ -147,19 +108,8 @@ namespace VortexBladeMod
 
         void Update()
         {
-            UpdatePlayerLevel();
+            VortexBladePlugin.PlayerLevel = ModUtils.GetPlayerLevel(this);
             UpdateBlades(Mathf.Min(VortexBladePlugin.BladeStacks, 5));
-        }
-
-        void UpdatePlayerLevel()
-        {
-            try {
-                var p = GetComponent<Player>();
-                if (p != null) {
-                    var pi = typeof(Player).GetProperty("Level", BindingFlags.Public | BindingFlags.Instance);
-                    if (pi != null) VortexBladePlugin.PlayerLevel = (int)pi.GetValue(p);
-                }
-            } catch {}
         }
 
         void UpdateBlades(int targetCount)

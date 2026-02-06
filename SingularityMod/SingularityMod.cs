@@ -42,6 +42,7 @@ namespace SingularityMod
         public static int SingularityLevel = 0;
 
         public const string UPGRADE_ID = "biSKigvSH0meTM/+oJv8ig";
+        private static ScriptableObject _cachedUpgrade;
 
         void Awake()
         {
@@ -51,55 +52,33 @@ namespace SingularityMod
             Harmony harmony = new Harmony("com.matissetec.singularity");
             harmony.PatchAll(typeof(SingularityPlugin));
             
-            ModUtils.PatchSafe(harmony, Log, "BRG.UI.UpgradeShop", "SetupShop", typeof(ShopHijacker));
-            ModUtils.PatchSafe(harmony, Log, "BRG.Gameplay.Upgrades.RunUpgradeShopController", "OnUpgradeSelected", typeof(UpgradePurchaseHook));
+            // Register with centralized pool - Logic for "at most 2" and "no replication" is now in ModUtils
+            ModUtils.RegisterModdedUpgrade(harmony, GetVortexTemplate, () => true);
+
+            ModUtils.AddUpgradeSelectionTracker(harmony, (index, upgrade) => {
+                if (upgrade != null && (string)AccessTools.Field(upgrade.GetType(), "id")?.GetValue(upgrade) == UPGRADE_ID) {
+                    SingularityPlugin.SingularityLevel++;
+                    var behavior = UnityEngine.Object.FindObjectOfType<SingularityBehavior>();
+                    if (behavior != null) behavior.Invoke("ApplyUpgrades", 0.1f);
+                }
+            });
             
             Log.LogInfo(">>> SINGULARITY MOD ONLINE <<<");
         }
 
-        [HarmonyPatch]
-        class ShopHijacker
+        static ScriptableObject GetVortexTemplate()
         {
-            static ScriptableObject _cachedUpgrade;
-            static void Prefix(ref object[] __args)
-            {
-                try {
-                    if (__args == null || __args.Length == 0) return;
-                    if (_cachedUpgrade == null) {
-                        Type type = AccessTools.TypeByName("MetagameUpgradeSO");
-                        var all = Resources.FindObjectsOfTypeAll(type);
-                        foreach (var obj in all) {
-                            if ((string)AccessTools.Field(type, "id").GetValue(obj) == UPGRADE_ID) {
-                                _cachedUpgrade = (ScriptableObject)obj;
-                                break;
-                            }
-                        }
+            if (_cachedUpgrade == null) {
+                Type type = AccessTools.TypeByName("MetagameUpgradeSO");
+                var all = Resources.FindObjectsOfTypeAll(type);
+                foreach (var obj in all) {
+                    if ((string)AccessTools.Field(type, "id").GetValue(obj) == UPGRADE_ID) {
+                        _cachedUpgrade = (ScriptableObject)obj;
+                        break;
                     }
-                    if (_cachedUpgrade != null) {
-                        Type upgradeType = AccessTools.TypeByName("MetagameUpgradeSO");
-                        Array newArray = Array.CreateInstance(upgradeType, 1);
-                        newArray.SetValue(_cachedUpgrade, 0);
-                        __args[0] = newArray;
-                    }
-                } catch {}
+                }
             }
-        }
-
-        [HarmonyPatch]
-        class UpgradePurchaseHook
-        {
-            static void Prefix(object __instance)
-            {
-                try {
-                    var field = AccessTools.Field(__instance.GetType(), "_upgradeSOs");
-                    var list = field.GetValue(__instance) as IList;
-                    if (list != null && list.Count > 0) {
-                        SingularityPlugin.SingularityLevel++;
-                        var behavior = UnityEngine.Object.FindObjectOfType<SingularityBehavior>();
-                        if (behavior != null) behavior.Invoke("ApplyUpgrades", 0.1f);
-                    }
-                } catch {}
-            }
+            return _cachedUpgrade;
         }
 
         [HarmonyPatch(typeof(Player), "Awake")]
