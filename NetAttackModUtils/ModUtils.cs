@@ -126,5 +126,48 @@ namespace NetAttackModUtils
             }
             return currentStatus; 
         }
+
+        // --- NODE MODIFICATION UTILS ---
+
+        public static void FindAndModifyNodes(BepInEx.Logging.ManualLogSource Log, Action<ScriptableObject> modificationCallback)
+        {
+            try {
+                Type nodeType = AccessTools.TypeByName("NodeSO");
+                if (nodeType == null) return;
+
+                var allNodes = Resources.FindObjectsOfTypeAll(nodeType);
+                if (allNodes.Length == 0) return;
+
+                Log.LogInfo($"[ModUtils] Scanning {allNodes.Length} nodes...");
+                
+                foreach (var obj in allNodes) {
+                    if (obj == null) continue;
+                    modificationCallback?.Invoke(obj as ScriptableObject);
+                }
+            } catch (Exception e) {
+                Log.LogError($"[ModUtils] Node Scan Error: {e.Message}");
+            }
+        }
+
+        public static bool OverclockNodeAction(object actionObj, float speedMultiplier = 0.2f)
+        {
+             bool modified = false;
+            try {
+                var fields = actionObj.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                foreach(var f in fields) {
+                    if (f.FieldType == typeof(float)) {
+                        string name = f.Name.ToLower();
+                        if (name.Contains("delay") || name.Contains("cooldown") || name.Contains("wait") || name.Contains("duration")) {
+                            float val = (float)f.GetValue(actionObj);
+                            if (val > 0.01f) {
+                                f.SetValue(actionObj, Mathf.Max(0.02f, val * speedMultiplier));
+                                modified = true;
+                            }
+                        }
+                    }
+                }
+            } catch {}
+            return modified;
+        }
     }
 }
