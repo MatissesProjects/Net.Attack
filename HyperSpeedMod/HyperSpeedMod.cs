@@ -31,9 +31,16 @@ namespace HyperSpeedMod
             try {
                 Harmony harmony = new Harmony("com.matissetec.hyperspeed");
                 ModUtils.PatchSafe(harmony, Log, "BRG.DataManagement.DatabaseUpgradeBuilder", "BuildUpgrades", typeof(UpgradeDatabasePatch));
-                ModUtils.PatchSafe(harmony, Log, "BRG.UI.UpgradeShop", "SetupShop", typeof(ShopHijackPatch));
-                ModUtils.PatchSafe(harmony, Log, "BRG.Gameplay.Upgrades.RunUpgradeShopController", "OnUpgradeSelected", typeof(SelectionTrackerPatch));
                 
+                // Register with centralized pool
+                ModUtils.RegisterModdedUpgrade(harmony, () => SpeedTemplate, () => SpeedStacks < 5);
+                
+                ModUtils.AddUpgradeSelectionTracker(harmony, (index, upgrade) => {
+                    if (upgrade != null && upgrade == SpeedTemplate) {
+                        if (SpeedStacks < 5) SpeedStacks++;
+                    }
+                });
+
                 var i2Loc = AccessTools.TypeByName("I2.Loc.LocalizationManager");
                 if (i2Loc != null) {
                     var mGetTranslation = i2Loc.GetMethods(BindingFlags.Public | BindingFlags.Static)
@@ -74,54 +81,8 @@ namespace HyperSpeedMod
                 var list = listFi?.GetValue(__instance) as IList;
 
                 if (list != null && list.Count > 0) {
-                    var template = list[0] as ScriptableObject;
-                    if (template != null) {
-                        HyperSpeedPlugin.SpeedTemplate = UnityEngine.Object.Instantiate(template);
-                        ModUtils.ApplyMetadata(HyperSpeedPlugin.SpeedTemplate, HyperSpeedPlugin.SPEED_ID, "HYPER_SPEED_KEY", "HYPER_SPEED_DESC");
-                        HyperSpeedPlugin.Log.LogWarning("Hyper Speed Template Created.");
-                    }
-                }
-            } catch {}
-        }
-    }
-
-    public static class ShopHijackPatch
-    {
-        public static void Prefix(object[] __args)
-        {
-            if (__args == null || __args.Length == 0) return;
-            var upgrades = __args[0] as IList;
-            if (upgrades == null || upgrades.Count < 1) return;
-
-            try {
-                // Hijack Slot 0
-                if (HyperSpeedPlugin.SpeedStacks < 5) upgrades[0] = HyperSpeedPlugin.SpeedTemplate;
-            } catch {}
-        }
-    }
-
-    public static class SelectionTrackerPatch
-    {
-        public static void Prefix(object __instance, object[] __args)
-        {
-            try {
-                if (__args == null || __args.Length == 0) return;
-                object message = __args[0];
-                if (message == null) return;
-
-                var listFi = __instance.GetType().GetFields(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public).FirstOrDefault(f => f.Name == "_upgradeSOs");
-                var list = listFi?.GetValue(__instance) as IList;
-                if (list != null && list.Count >= 1) {
-                    if (HyperSpeedPlugin.SpeedTemplate != null) list[0] = HyperSpeedPlugin.SpeedTemplate;
-                }
-
-                var msgFields = message.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                var indexFi = msgFields.FirstOrDefault(f => f.Name.ToLower().Contains("index"));
-                int selectedIndex = (indexFi != null) ? (int)indexFi.GetValue(message) : -1;
-                var upgradeFi = msgFields.FirstOrDefault(f => f.Name.Contains("Upgrade") || f.FieldType.Name.Contains("SO"));
-
-                if (selectedIndex == 0 || (upgradeFi != null && upgradeFi.GetValue(message) == HyperSpeedPlugin.SpeedTemplate)) {
-                    if (HyperSpeedPlugin.SpeedStacks < 5) HyperSpeedPlugin.SpeedStacks++;
+                    HyperSpeedPlugin.SpeedTemplate = ModUtils.CreateTemplate<ScriptableObject>(list, "", HyperSpeedPlugin.SPEED_ID, "HYPER_SPEED_KEY", "HYPER_SPEED_DESC");
+                    HyperSpeedPlugin.Log.LogWarning("Hyper Speed Template Created.");
                 }
             } catch {}
         }
