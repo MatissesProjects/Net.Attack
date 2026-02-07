@@ -167,44 +167,124 @@ namespace NetAttackModLoader
             _modsMenuContainer.name = "Container_Mods";
             _modsMenuContainer.SetActive(false);
             
+            // 1. DISABLE INHERITED LAYOUTS (Crucial to prevent overlapping children)
+            var vlgInherited = _modsMenuContainer.GetComponent<VerticalLayoutGroup>();
+            if (vlgInherited != null) vlgInherited.enabled = false;
+            var hlgInherited = _modsMenuContainer.GetComponent<HorizontalLayoutGroup>();
+            if (hlgInherited != null) hlgInherited.enabled = false;
+            var glgInherited = _modsMenuContainer.GetComponent<GridLayoutGroup>();
+            if (glgInherited != null) glgInherited.enabled = false;
+            var csfInherited = _modsMenuContainer.GetComponent<ContentSizeFitter>();
+            if (csfInherited != null) csfInherited.enabled = false;
+
+            // 2. FORCE FULL SCREEN
+            RectTransform containerRT = _modsMenuContainer.GetComponent<RectTransform>();
+            if (containerRT != null) {
+                containerRT.anchorMin = Vector2.zero; containerRT.anchorMax = Vector2.one;
+                containerRT.sizeDelta = Vector2.zero;
+                containerRT.anchoredPosition = Vector2.zero;
+            }
+
             foreach (Transform child in _modsMenuContainer.transform) {
                 UnityEngine.Object.Destroy(child.gameObject);
             }
 
-            PopulateModList();
+            // 3. BACKGROUND (Make it look like a real window)
+            GameObject bg = new GameObject("Background");
+            bg.transform.SetParent(_modsMenuContainer.transform, false);
+            RectTransform bgRT = bg.AddComponent<RectTransform>();
+            bgRT.anchorMin = Vector2.zero; bgRT.anchorMax = Vector2.one;
+            bgRT.sizeDelta = Vector2.zero;
+            var bgImg = bg.AddComponent<Image>();
+            bgImg.color = new Color(0.05f, 0.05f, 0.1f, 0.95f); // Deep dark blue
+
+            // --- CREATE SCROLL VIEW ---
+            GameObject scrollView = new GameObject("Scroll View");
+            scrollView.transform.SetParent(_modsMenuContainer.transform, false);
+            RectTransform svRect = scrollView.AddComponent<RectTransform>();
+            svRect.anchorMin = new Vector2(0.05f, 0.2f); // 5% margin, room for Back button
+            svRect.anchorMax = new Vector2(0.95f, 0.95f);
+            svRect.sizeDelta = Vector2.zero;
+            
+            var svImage = scrollView.AddComponent<Image>();
+            svImage.color = new Color(0, 0, 0, 0.5f);
+
+            var scrollRect = scrollView.AddComponent<ScrollRect>();
+            scrollRect.horizontal = false;
+            scrollRect.vertical = true;
+            scrollRect.scrollSensitivity = 45f;
+
+            // Viewport
+            GameObject viewport = new GameObject("Viewport");
+            viewport.transform.SetParent(scrollView.transform, false);
+            RectTransform vpRect = viewport.AddComponent<RectTransform>();
+            vpRect.anchorMin = Vector2.zero; vpRect.anchorMax = Vector2.one;
+            vpRect.sizeDelta = Vector2.zero;
+            vpRect.pivot = new Vector2(0, 1);
+            viewport.AddComponent<RectMask2D>();
+            var vpImage = viewport.AddComponent<Image>();
+            vpImage.color = new Color(0,0,0,0);
+            scrollRect.viewport = vpRect;
+
+            // Content
+            GameObject content = new GameObject("Content");
+            content.transform.SetParent(viewport.transform, false);
+            RectTransform contentRect = content.AddComponent<RectTransform>();
+            contentRect.anchorMin = new Vector2(0, 1); contentRect.anchorMax = new Vector2(1, 1);
+            contentRect.pivot = new Vector2(0.5f, 1);
+            contentRect.sizeDelta = new Vector2(0, 300);
+
+            var vlg = content.AddComponent<VerticalLayoutGroup>();
+            vlg.childControlHeight = true;
+            vlg.childControlWidth = true;
+            vlg.childForceExpandHeight = false;
+            vlg.childForceExpandWidth = true;
+            vlg.spacing = 15;
+            vlg.padding = new RectOffset(30, 30, 30, 30);
+
+            var csf = content.AddComponent<ContentSizeFitter>();
+            csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            scrollRect.content = contentRect;
+
+            PopulateModList(content.transform);
         }
 
-        static void PopulateModList()
+        static void PopulateModList(Transform container)
         {
-            // 1. TOP MARGIN (Spacer)
-            CreateSpacer(30);
-
-            // 2. HEADER
-            var header = CloneButton("Header", "--- MOD MANAGER ---");
+            // HEADER
+            var header = CloneButton("Header", "--- MOD MANAGER ---", container);
             SetButtonColor(header.gameObject, Color.yellow);
             RemoveClick(header.gameObject);
-            SetButtonIcon(header.gameObject, IconMode.Hidden); // Hide Icon
+            SetButtonIcon(header.gameObject, IconMode.Hidden);
+            AddLayoutElement(header.gameObject, 80);
             
-            // 3. HEADER GAP (Spacer)
-            CreateSpacer(20);
+            CreateSpacer(20, container);
 
-            // 4. MOD LIST
-            foreach (var file in NetAttackModLoader.Instance.CachedActive)
+            // MOD LIST - Sorted Alphabetically
+            var activeSorted = NetAttackModLoader.Instance.CachedActive.OrderBy(f => Path.GetFileName(f)).ToList();
+            var disabledSorted = NetAttackModLoader.Instance.CachedDisabled.OrderBy(f => Path.GetFileName(f)).ToList();
+
+            foreach (var file in activeSorted)
             {
-                CreateModToggle(Path.GetFileName(file), true);
+                CreateModToggle(Path.GetFileName(file), true, container);
             }
-            foreach (var file in NetAttackModLoader.Instance.CachedDisabled)
+            foreach (var file in disabledSorted)
             {
-                CreateModToggle(Path.GetFileName(file), false);
+                CreateModToggle(Path.GetFileName(file), false, container);
             }
 
-            // 5. BOTTOM MARGIN (Spacer)
-            CreateSpacer(40);
+            // BACK BUTTON (Outside scroll area)
+            var backBtn = CloneButton("Back", "<< BACK", _modsMenuContainer.transform);
+            SetButtonIcon(backBtn.gameObject, IconMode.Hidden); // HIDE GIANT ICON
+            
+            RectTransform rt = backBtn.GetComponent<RectTransform>();
+            rt.anchorMin = new Vector2(0.5f, 0.05f); // Center bottom
+            rt.anchorMax = new Vector2(0.5f, 0.05f);
+            rt.pivot = new Vector2(0.5f, 0);
+            rt.anchoredPosition = Vector2.zero;
+            rt.sizeDelta = new Vector2(300, 80);
 
-            // 6. BACK BUTTON
-            var backBtn = CloneButton("Back", "<< BACK");
             SetButtonColor(backBtn.gameObject, Color.white);
-            SetButtonIcon(backBtn.gameObject, IconMode.Rotated90CCW); // Back Arrow (Rotated)
             
             SetButtonAction(backBtn.gameObject, () => {
                 _modsMenuContainer.SetActive(false);
@@ -212,17 +292,20 @@ namespace NetAttackModLoader
             });
         }
 
-        static void CreateModToggle(string fileName, bool startEnabled)
+        static void CreateModToggle(string fileName, bool startEnabled, Transform container)
         {
             string statusText = startEnabled ? "[ON]" : "[OFF]";
-            var btnComp = CloneButton(fileName, $"{statusText} {fileName}");
+            var btnComp = CloneButton(fileName, $"{statusText} {fileName}", container);
             GameObject btnObj = btnComp.gameObject;
 
+            AddLayoutElement(btnObj, 50); // Important for VerticalLayoutGroup
             UpdateToggleVisuals(btnObj, startEnabled);
+            HideAllIcons(btnObj); // NEW: Extra aggressive wipe
 
             SetButtonAction(btnObj, () => {
                 bool isNowEnabled = NetAttackModLoader.Instance.ToggleModFile(fileName);
                 UpdateToggleVisuals(btnObj, isNowEnabled);
+                HideAllIcons(btnObj); // Re-wipe after any state change
                 
                 var enforcer = btnObj.GetComponent<TextEnforcer>();
                 string newStatus = isNowEnabled ? "[ON]" : "[OFF]";
@@ -230,10 +313,59 @@ namespace NetAttackModLoader
             });
         }
 
+        static void HideAllIcons(GameObject btn)
+        {
+            // 1. Wipe internal references via reflection
+            Type btnType = GetButtonType();
+            if (btnType != null) {
+                var comp = btn.GetComponent(btnType);
+                if (comp != null) {
+                    var fields = btnType.GetFields(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+                    foreach(var f in fields) {
+                        if (f.Name.ToLower().Contains("icon")) {
+                            try {
+                                var val = f.GetValue(comp) as MonoBehaviour;
+                                if (val != null) {
+                                    val.gameObject.SetActive(false);
+                                    var rt = val.GetComponent<RectTransform>();
+                                    if (rt != null) rt.anchoredPosition = new Vector2(10000, 10000); // MOVE OFF SCREEN
+                                }
+                                f.SetValue(comp, null); 
+                            } catch {}
+                        }
+                    }
+                }
+            }
+
+            // 2. Hide only Image components, but keep text and backgrounds
+            var images = btn.GetComponentsInChildren<Image>(true);
+            foreach (var img in images) {
+                if (img.gameObject == btn) continue;
+                
+                // Keep backgrounds
+                string n = img.name.ToLower();
+                if (n.Contains("bg") || n.Contains("background") || n.Contains("frame") || n.Contains("highlight") || n.Contains("glow")) continue;
+                
+                // Safety: NEVER hide an object that has a text component on it
+                if (img.GetComponent<TMPro.TMP_Text>() != null || img.GetComponent<Text>() != null) continue;
+
+                img.gameObject.SetActive(false);
+                img.rectTransform.anchoredPosition = new Vector2(10000, 10000); // MOVE OFF SCREEN
+            }
+        }
+
+        static void AddLayoutElement(GameObject obj, float minHeight)
+        {
+            var le = obj.GetComponent<LayoutElement>();
+            if (le == null) le = obj.AddComponent<LayoutElement>();
+            le.minHeight = minHeight;
+            le.preferredHeight = minHeight;
+        }
+
         static void UpdateToggleVisuals(GameObject btn, bool enabled)
         {
             SetButtonColor(btn, enabled ? Color.cyan : new Color(1f, 0.4f, 0.4f));
-            SetButtonIcon(btn, enabled ? IconMode.Normal : IconMode.Flipped); // If NOT enabled, flip upside down
+            SetButtonIcon(btn, IconMode.Hidden);
         }
 
         // --- IMPROVED ICON LOGIC ---
@@ -252,22 +384,22 @@ namespace NetAttackModLoader
                 RectTransform rt = img.rectTransform;
 
                 // HEURISTIC 1: Ignore Full-Stretch Backgrounds
-                // If it anchors to all corners (0,0 to 1,1), it's likely a background.
                 if (rt.anchorMin == Vector2.zero && rt.anchorMax == Vector2.one) continue;
 
-                // HEURISTIC 2: Ignore Wide Elements (Bars, Underlines)
-                // If it spans more than 80% of the width, it's likely a decoration, not an icon.
+                // HEURISTIC 2: Ignore Wide Elements
                 if ((rt.anchorMax.x - rt.anchorMin.x) > 0.8f) continue;
 
                 if (mode == IconMode.Hidden)
                 {
-                    img.enabled = false;
+                    img.gameObject.SetActive(false);
+                    img.rectTransform.anchoredPosition = new Vector2(10000, 10000); // MOVE OFF SCREEN
                 }
                 else
                 {
+                    img.gameObject.SetActive(true);
                     img.enabled = true;
 
-                    // 1. Capture Original Position (So we don't drift)
+                    // 1. Capture Original Position
                     var posTracker = img.GetComponent<IconOriginalPos>();
                     if (posTracker == null) posTracker = img.gameObject.AddComponent<IconOriginalPos>();
                     posTracker.CaptureIfNeeded(img.rectTransform);
@@ -279,42 +411,38 @@ namespace NetAttackModLoader
 
                     img.transform.localEulerAngles = new Vector3(0, 0, zRot);
 
-                    // 3. Adjust Position (Move up by height if flipped)
+                    // 3. Adjust Position
                     if (mode == IconMode.Flipped)
                     {
-                        // Shift up by full height to counteract the flip relative to pivot
                         float height = img.rectTransform.rect.height;
                         img.rectTransform.anchoredPosition = posTracker.OriginalAnchoredPosition + new Vector2(0, height);
                     }
                     else if (mode == IconMode.Rotated90CCW)
                     {
-                        // Shift right by half height (to center the new width)
-                        // Shift up by half width (to bring bottom to baseline)
                         float h = img.rectTransform.rect.height;
                         float w = img.rectTransform.rect.width;
                         img.rectTransform.anchoredPosition = posTracker.OriginalAnchoredPosition + new Vector2(h * 0.5f, w * 0.5f);
                     }
                     else
                     {
-                        // Restore original
                         img.rectTransform.anchoredPosition = posTracker.OriginalAnchoredPosition;
                     }
                 }
             }
         }
 
-        static void CreateSpacer(float height)
+        static void CreateSpacer(float height, Transform container)
         {
             GameObject spacer = new GameObject("Spacer");
-            spacer.transform.SetParent(_modsMenuContainer.transform, false);
+            spacer.transform.SetParent(container, false);
             var le = spacer.AddComponent<LayoutElement>();
             le.minHeight = height;
             le.preferredHeight = height;
         }
 
-        static MonoBehaviour CloneButton(string name, string text)
+        static MonoBehaviour CloneButton(string name, string text, Transform parent)
         {
-            GameObject newObj = UnityEngine.Object.Instantiate(_buttonTemplate.gameObject, _modsMenuContainer.transform);
+            GameObject newObj = UnityEngine.Object.Instantiate(_buttonTemplate.gameObject, parent);
             newObj.name = "Btn_" + name;
             SetButtonText(newObj, text);
             Type btnType = GetButtonType();
