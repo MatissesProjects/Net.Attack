@@ -34,7 +34,7 @@ namespace NetAttackModUtils
             }
         }
 
-        public static void ApplyMetadata(ScriptableObject obj, string id, string nameKey, string descKey)
+        public static void ApplyMetadata(ScriptableObject obj, string id, string nameKey, string descKey, string incKey = null)
         {
             Type type = obj.GetType();
             SetField(obj, type, "id", id);
@@ -45,33 +45,48 @@ namespace NetAttackModUtils
             SetField(obj, type, "_descriptionKey", descKey);
             SetField(obj, type, "_tooltipkey", descKey);
             
-            string[] levelFields = { "_level", "level", "_currentLevel", "currentLevel", "_buyCount", "buyCount", "_upgradeLevel", "upgradeLevel" };
+            string[] levelFields = { 
+                "_level", "level", "_currentLevel", "currentLevel", "_buyCount", "buyCount", 
+                "_upgradeLevel", "upgradeLevel", "_count", "count", "_stack", "stack", 
+                "_stacks", "stacks", "_unlocked", "unlocked", "_isUnlocked", "isUnlocked",
+                "_purchased", "purchased", "_isPurchased", "isPurchased"
+            };
             foreach (var f in levelFields) SetField(obj, type, f, 0);
             
             SetField(obj, type, "_price", 1);
             SetField(obj, type, "_basePrice", 1);
-            SetField(obj, type, "_maxCount", 5);
-            SetField(obj, type, "_maxUpgradeLevel", 5);
+            SetField(obj, type, "_maxCount", 10);
+            SetField(obj, type, "_maxUpgradeLevel", 10);
             SetField(obj, type, "_isActive", true);
             
-            foreach (var w in new[] { "gameplayUpgrade", "nodeUpgrade", "metaUpgrade", "upgrade" }) ModifyWrapper(obj, type, w, descKey);
+            foreach (var w in new[] { "gameplayUpgrade", "nodeUpgrade", "metaUpgrade", "upgrade" }) ModifyWrapper(obj, type, w, nameKey, descKey, incKey);
 
             SetField(obj, type, "action", null);
             SetField(obj, type, "attributeData", null);
+            SetField(obj, type, "_attributeData", null);
         }
 
-        public static void ModifyWrapper(object obj, Type type, string fieldName, string descKey)
+        public static void ModifyWrapper(object obj, Type type, string fieldName, string nameKey, string descKey, string incKey = null)
         {
-            var fi = type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic).FirstOrDefault(f => f.Name == fieldName || f.Name == "_" + fieldName);
+            var fi = type.GetFields(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public).FirstOrDefault(f => f.Name == fieldName || f.Name == "_" + fieldName);
             var wrapper = fi?.GetValue(obj);
             if (wrapper == null) return;
             
             Type wType = wrapper.GetType();
-            foreach(var f in wType.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)) {
+            foreach(var f in wType.GetFields(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)) {
                 if (f.FieldType == typeof(float)) f.SetValue(wrapper, 0f);
-                if (f.FieldType == typeof(string) && f.Name.Contains("Key")) f.SetValue(wrapper, descKey);
+                if (f.FieldType == typeof(int)) f.SetValue(wrapper, 0);
+                if (f.FieldType.IsEnum) { try { f.SetValue(wrapper, 0); } catch {} }
+                
+                if (f.FieldType == typeof(string) && f.Name.Contains("Key")) {
+                    string n = f.Name.ToLower();
+                    if (n.Contains("name")) f.SetValue(wrapper, nameKey);
+                    else if (incKey != null && (n.Contains("value") || n.Contains("inc"))) f.SetValue(wrapper, incKey);
+                    else f.SetValue(wrapper, descKey);
+                }
             }
             SetField(wrapper, wType, "attributeData", null);
+            SetField(wrapper, wType, "_attributeData", null);
         }
 
         public static bool SetField(object obj, Type type, string name, object value)
@@ -170,7 +185,13 @@ namespace NetAttackModUtils
             return modified;
         }
 
+        // Backward compatibility for mods compiled with older versions
         public static T CreateTemplate<T>(IList list, string templateId, string newId, string name, string desc) where T : ScriptableObject
+        {
+            return CreateTemplate<T>(list, templateId, newId, name, desc, null);
+        }
+
+        public static T CreateTemplate<T>(IList list, string templateId, string newId, string name, string desc, string inc) where T : ScriptableObject
         {
             object template = null;
             Type type = typeof(T);
@@ -190,7 +211,7 @@ namespace NetAttackModUtils
 
             T newObj = UnityEngine.Object.Instantiate((T)template);
             newObj.name = newId;
-            ApplyMetadata(newObj, newId, name, desc);
+            ApplyMetadata(newObj, newId, name, desc, inc);
             return newObj;
         }
 
