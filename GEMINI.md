@@ -1,6 +1,7 @@
 ## Gemini Added Memories
+- **Testing Workflow**: ALWAYS run the full "Build & Deploy" command before every test to ensure the game environment reflects the latest code.
 - **Centralized Architecture**: Always prefer moving logic to `NetAttackModUtils` if it's reused across mods (e.g., patching, shop injection, state detection).
-- **Deployment Strategy**: When deploying, check for existing DLLs in the game folder. Replace existing ones to update, but be cautious about adding new files unless explicitly intended. The standard script handles this logic.
+- **Deployment Strategy**: When deploying, check for existing DLLs in both `plugins` and `plugins_disabled`. Update them in their current location to respect the user's toggle state. The standard script handles this logic.
 - **Shop Hijacking**: Do not manually patch `UpgradeShop:SetupShop` in individual mods. Use `ModUtils.RegisterModdedUpgrade` to ensure fair slot distribution and prevent conflicts/crashes.
 - **Node Injection**: Use `ModUtils.AddNodeShopHijack` to safely insert nodes into the terminal shop.
 - **Templates**: Always use `ModUtils.CreateTemplate<T>` when making new ScriptableObjects to ensure they inherit valid internal state from the game.
@@ -17,29 +18,12 @@ we are using dnspy to gather as much information as we can for the game
 
 ---
 
-## Deployment (Syncing Mods)
+## Build & Deploy (Run before Testing)
 
-To automatically copy built DLLs to the game's plugin folder (only updating existing ones), use this PowerShell script:
+To compile the entire solution and automatically copy all built DLLs to the game's plugin folder (or update them in `plugins_disabled` if already there), use this combined PowerShell command:
 
 ```powershell
-$dest = 'C:\Program Files (x86)\Steam\steamapps\common\ForeachHack\NetAttack\BepInEx\plugins';
-$mods = Get-ChildItem -Directory;
-
-foreach ($mod in $mods) {
-    $dllName = "$($mod.Name).dll";
-    $srcPath = Join-Path $mod.FullName "bin\Debug\netstandard2.1\$dllName";
-    $destPath = Join-Path $dest $dllName;
-
-    if (Test-Path $srcPath) {
-        if (Test-Path $destPath) {
-            Copy-Item -Path $srcPath -Destination $destPath -Force;
-            Write-Host "Updated: $dllName";
-        } else {
-            Copy-Item -Path $srcPath -Destination $destPath -Force;
-            Write-Host "Deployed New: $dllName";
-        }
-    }
-}
+dotnet build; $plugins = 'C:\Program Files (x86)\Steam\steamapps\common\ForeachHack\NetAttack\BepInEx\plugins'; $disabled = 'C:\Program Files (x86)\Steam\steamapps\common\ForeachHack\NetAttack\BepInEx\plugins_disabled'; Get-ChildItem -Directory | ForEach-Object { $dll = "$($_.Name).dll"; $src = Join-Path $_.FullName "bin\Debug\netstandard2.1\$dll"; if (Test-Path $src) { if (Test-Path (Join-Path $disabled $dll)) { $dst = Join-Path $disabled $dll; $status = "Deployed (Disabled)" } else { $dst = Join-Path $plugins $dll; $status = "Deployed" }; Copy-Item $src $dst -Force; Write-Host "${status}: $dll" } }
 ```
 
 ---
