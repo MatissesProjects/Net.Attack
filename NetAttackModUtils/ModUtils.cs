@@ -44,12 +44,17 @@ namespace NetAttackModUtils
             SetField(obj, type, "_description", descKey);
             SetField(obj, type, "_descriptionKey", descKey);
             SetField(obj, type, "_tooltipkey", descKey);
+            SetField(obj, type, "_shortDescriptionKey", descKey);
+            SetField(obj, type, "_commentKey", "");
+            SetField(obj, type, "_contraBGID", "");
             
+            // Exhaustive reset of level/count fields
             string[] levelFields = { 
                 "_level", "level", "_currentLevel", "currentLevel", "_buyCount", "buyCount", 
                 "_upgradeLevel", "upgradeLevel", "_count", "count", "_stack", "stack", 
                 "_stacks", "stacks", "_unlocked", "unlocked", "_isUnlocked", "isUnlocked",
-                "_purchased", "purchased", "_isPurchased", "isPurchased"
+                "_purchased", "purchased", "_isPurchased", "isPurchased", "_buyAmount", "buyAmount",
+                "_tier", "tier", "_currentTier", "currentTier"
             };
             foreach (var f in levelFields) SetField(obj, type, f, 0);
             
@@ -82,6 +87,7 @@ namespace NetAttackModUtils
                     string n = f.Name.ToLower();
                     if (n.Contains("name")) f.SetValue(wrapper, nameKey);
                     else if (incKey != null && (n.Contains("value") || n.Contains("inc"))) f.SetValue(wrapper, incKey);
+                    else if (n.Contains("short")) f.SetValue(wrapper, descKey);
                     else f.SetValue(wrapper, descKey);
                 }
             }
@@ -250,14 +256,21 @@ namespace NetAttackModUtils
             try {
                 Type type = obj.GetType();
                 Log.LogInfo($"--- {label} (Type: {type.Name}) ---");
-                foreach (var f in type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)) {
-                    object val = "null";
-                    try { val = f.GetValue(obj); } catch {}
-                    Log.LogInfo($"{f.Name} ({f.FieldType.Name}): {val}");
-                }
+                DumpFieldsRecursive(Log, obj, type);
             } catch (Exception e) {
                 Log.LogError($"Error dumping fields for {label}: {e.Message}");
             }
+        }
+
+        private static void DumpFieldsRecursive(BepInEx.Logging.ManualLogSource Log, object obj, Type type)
+        {
+            if (type == null || type == typeof(UnityEngine.Object) || type == typeof(ScriptableObject)) return;
+            foreach (var f in type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)) {
+                object val = "null";
+                try { val = f.GetValue(obj); } catch {}
+                Log.LogInfo($"[{type.Name}] {f.Name} ({f.FieldType.Name}): {val}");
+            }
+            DumpFieldsRecursive(Log, obj, type.BaseType);
         }
 
         public static void InspectEnum(BepInEx.Logging.ManualLogSource Log, string enumName)
