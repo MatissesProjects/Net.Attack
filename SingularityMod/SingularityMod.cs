@@ -61,9 +61,15 @@ namespace SingularityMod
 
                 // 3. Track selections
                 ModUtils.AddUpgradeSelectionTracker(harmony, (index, upgrade) => {
-                    if (upgrade != null && upgrade == _cachedUpgrade) {
-                        SingularityPlugin.SingularityLevel++;
-                        Log.LogInfo($"Singularity Vortex leveled up! Level: {SingularityLevel}");
+                    if (upgrade != null) {
+                        var idFi = upgrade.GetType().GetField("id", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) ?? 
+                                   upgrade.GetType().GetField("_id", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                        string id = idFi?.GetValue(upgrade) as string;
+
+                        if (id == UPGRADE_ID) {
+                            SingularityPlugin.SingularityLevel++;
+                            Log.LogInfo($"Singularity Vortex leveled up! Level: {SingularityLevel}");
+                        }
                     }
                 });
 
@@ -132,9 +138,8 @@ namespace SingularityMod
                 var list = listFi?.GetValue(__instance) as IList;
 
                 if (list != null && list.Count > 0) {
-                    // Use a common upgrade as a template (e.g., first in list)
-                    var type = AccessTools.TypeByName("MetagameUpgradeSO");
-                    var template = ModUtils.CreateTemplate<ScriptableObject>(list, "", SingularityPlugin.UPGRADE_ID, "SINGULARITY_KEY", "SINGULARITY_DESC");
+                    // Use a specific upgrade as template instead of empty string
+                    var template = ModUtils.CreateTemplate<ScriptableObject>(list, "DownloadSpeed", SingularityPlugin.UPGRADE_ID, "SINGULARITY_KEY", "SINGULARITY_DESC");
                     
                     // Store it globally for Singularity mod
                     typeof(SingularityPlugin).GetField("_cachedUpgrade", BindingFlags.Static | BindingFlags.NonPublic).SetValue(null, template);
