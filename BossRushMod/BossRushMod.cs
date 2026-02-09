@@ -243,7 +243,7 @@ namespace BossRushMod
                 normal = { textColor = BossRushPlugin.IsBossRushActive ? Color.red : Color.white }
             };
 
-            string text = BossRushPlugin.IsBossRushActive ? "!!! BOSS RUSH !!!" : "BOSS RUSH: OFF";
+            string text = BossRushPlugin.IsBossRushActive ? "!!! BOSS RUSH !!!":"BOSS RUSH: OFF";
             GUI.Label(new Rect(x, y, width, height), text, style);
             
             if (BossRushPlugin.IsBossRushActive) {
