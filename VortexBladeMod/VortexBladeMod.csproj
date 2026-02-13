@@ -80,6 +80,14 @@
       <HintPath>C:\Program Files (x86)\Steam\steamapps\common\ForeachHack\NetAttack\Net.Attack()_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="UnityEngine.Physics2DModule">
+      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\ForeachHack\NetAttack\Net.Attack()_Data\Managed\UnityEngine.Physics2DModule.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AIModule">
+      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\ForeachHack\NetAttack\Net.Attack()_Data\Managed\UnityEngine.AIModule.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
     <Reference Include="UnityEngine.IMGUIModule">
       <HintPath>C:\Program Files (x86)\Steam\steamapps\common\ForeachHack\NetAttack\Net.Attack()_Data\Managed\UnityEngine.IMGUIModule.dll</HintPath>
     </Reference>

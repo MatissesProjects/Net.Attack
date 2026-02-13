@@ -26,17 +26,41 @@ namespace NodeExpansionPack
             
             try {
                 Harmony harmony = new Harmony("com.matissetec.nodeexpansion");
+                
+                // 1. Inject into the master database
                 ModUtils.PatchSafe(harmony, Log, "BRG.DataManagement.DatabaseNodeBuilder", "LoadDatabase", typeof(NodeDatabasePatch));
                 
-                // Hijack node shop to show MEGA PROCESSOR
+                // 2. Debug the shop and its sub-objects
+                ModUtils.PatchSafe(harmony, Log, "BRG.NodeSystem.Shop", "OnEnable", typeof(ShopDebugPatch));
+                
+                // 3. Robust hijack attempt
                 ModUtils.AddNodeShopHijack(harmony, 
                     () => InjectedNodes.ContainsKey(MEGA_NODE_ID) ? InjectedNodes[MEGA_NODE_ID] : null, 
                     () => true);
+
+                ModUtils.InspectEnum(Log, "BRG.NodeSystem.NodeSets");
 
                 Log.LogInfo(">>> NODE EXPANSION PACK ONLINE <<<");
             } catch (Exception e) {
                 Log.LogError("NodeExpansion Patching Failed: " + e);
             }
+        }
+    }
+
+    public static class ShopDebugPatch
+    {
+        public static void Postfix(object __instance)
+        {
+            NodeExpansionPlugin.Log.LogInfo("[NodeExpansion] Shop OnEnable detected!");
+            ModUtils.DumpFields(NodeExpansionPlugin.Log, __instance, "Shop Fields");
+            
+            // Try to dump sub-objects
+            var flags = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
+            var dataSO = __instance.GetType().GetField("_shopNodeDataSO", flags)?.GetValue(__instance);
+            if (dataSO != null) ModUtils.DumpFields(NodeExpansionPlugin.Log, dataSO, "ShopNodeDataSO Fields");
+            
+            var graphBuilder = __instance.GetType().GetField("_graphBuilder", flags)?.GetValue(__instance);
+            if (graphBuilder != null) ModUtils.DumpFields(NodeExpansionPlugin.Log, graphBuilder, "GraphBuilder Fields");
         }
     }
 
@@ -68,6 +92,7 @@ namespace NodeExpansionPack
                 if (node != null) {
                     ModUtils.SetField(node, nodeType, "_price", 1);
                     ModUtils.SetField(node, nodeType, "_maxCount", 99);
+                    ModUtils.SetField(node, nodeType, "_nodeSets", 255);
                     ModUtils.SetActionField(node, "Iterations", 100);
                     ModUtils.OverclockNodeAction(AccessTools.Field(nodeType, "_action").GetValue(node), 0f);
                     
@@ -83,6 +108,7 @@ namespace NodeExpansionPack
                 if (node != null) {
                     ModUtils.SetField(node, nodeType, "_price", 500);
                     ModUtils.SetField(node, nodeType, "_maxCount", 5);
+                    ModUtils.SetField(node, nodeType, "_nodeSets", 255);
                     ModUtils.SetActionField(node, "Damage", 999999f);
                     list.Add(node);
                     NodeExpansionPlugin.InjectedNodes["node_instakill"] = node;
@@ -95,6 +121,7 @@ namespace NodeExpansionPack
                 var node = ModUtils.CreateTemplate<ScriptableObject>(list, "Start_OnAttackAction", "node_turbo_trigger", "TURBO TRIGGER", "Fires at 5x normal speed.");
                 if (node != null) {
                     ModUtils.SetField(node, nodeType, "_price", 100);
+                    ModUtils.SetField(node, nodeType, "_nodeSets", 255);
                     ModUtils.SetActionField(node, "cooldown", 0.02f);
                     list.Add(node);
                     NodeExpansionPlugin.InjectedNodes["node_turbo_trigger"] = node;

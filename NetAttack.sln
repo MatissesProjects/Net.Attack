@@ -11,6 +11,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NodeMasterMod", "NodeMaster
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GameSpeedMod", "GameSpeedMod\GameSpeedMod.csproj", "{D97FBA8F-F8EE-4E74-A316-BA72433F1163}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BossRushMod", "BossRushMod\BossRushMod.csproj", "{E485B2B5-6513-4E00-B40F-CB1A2B2841F4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CustomEnemyMod", "CustomEnemyMod\CustomEnemyMod.csproj", "{60D56FA4-FFC8-4AEB-ABAD-EAD8ECAA7FBC}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -36,5 +40,13 @@ Global
 		{D97FBA8F-F8EE-4E74-A316-BA72433F1163}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D97FBA8F-F8EE-4E74-A316-BA72433F1163}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D97FBA8F-F8EE-4E74-A316-BA72433F1163}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E485B2B5-6513-4E00-B40F-CB1A2B2841F4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E485B2B5-6513-4E00-B40F-CB1A2B2841F4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E485B2B5-6513-4E00-B40F-CB1A2B2841F4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E485B2B5-6513-4E00-B40F-CB1A2B2841F4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{60D56FA4-FFC8-4AEB-ABAD-EAD8ECAA7FBC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{60D56FA4-FFC8-4AEB-ABAD-EAD8ECAA7FBC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{60D56FA4-FFC8-4AEB-ABAD-EAD8ECAA7FBC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{60D56FA4-FFC8-4AEB-ABAD-EAD8ECAA7FBC}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
